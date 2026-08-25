@@ -1,4 +1,10 @@
-// Intentionally empty by default.
-// Add Drizzle tables here when the site actually needs a database.
-// See examples/d1/db/schema.ts for an opt-in example.
-export {};
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+
+export const whatsappSessions = sqliteTable("whatsapp_sessions", {
+  phone: text("phone").primaryKey(),
+  stage: text("stage").notNull().default("start"),
+  category: text("category"),
+  searchResults: text("search_results").notNull().default("[]"),
+  cart: text("cart").notNull().default("{}"),
+  updatedAt: integer("updated_at").notNull(),
+});
