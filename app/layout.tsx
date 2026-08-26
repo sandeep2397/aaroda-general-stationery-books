@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NammaCare WhatsApp Bot",
-  description: "WhatsApp ordering bot webhook for medicines and stationery.",
+  title: "NammaCare — Chat to order",
+  description: "Order medicine and stationery with live inventory and secure checkout.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
