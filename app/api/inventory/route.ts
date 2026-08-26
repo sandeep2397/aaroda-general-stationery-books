@@ -25,6 +25,9 @@ export async function GET(request: Request) {
     return Response.json({ items: items.map(({ _id, ...item }) => ({ id: _id.toString(), ...item })) });
   } catch (error) {
     console.error(error);
-    return Response.json({ error: "Inventory is temporarily unavailable" }, { status: 500 });
+    const { searchParams } = new URL(request.url);
+    const category = searchParams.get("category"), search = searchParams.get("search")?.trim().toLowerCase();
+    const items = seedInventory.filter((item) => (!category || category === "All" || item.category === category) && (!search || `${item.name} ${item.description} ${item.sku}`.toLowerCase().includes(search)));
+    return Response.json({ items: items.map((item, index) => ({ id: `seed-${index + 1}`, ...item })), source: "prototype", warning: "Database connection unavailable" });
   }
 }
