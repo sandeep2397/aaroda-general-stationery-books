@@ -20,10 +20,14 @@ export async function GET(request: Request) {
   const search = searchParams.get("search")?.trim().toLowerCase();
   const isAdmin = searchParams.get("admin") === "true";
   const includeInactive = searchParams.get("includeInactive") === "true" || isAdmin;
+  const statsOnly = searchParams.get("stats") === "true";
+  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+  const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit")) || 24));
 
   try {
     if (!process.env.MONGODB_URI) {
       let items = getLocalInventory();
+      if (statsOnly) return Response.json({ totalSkus: items.length, totalStock: items.reduce((sum, item) => sum + (item.stock || 0), 0), medicines: items.filter(item => item.category.toLowerCase().includes("med")).length, stationery: items.filter(item => item.category.toLowerCase().includes("stat")).length });
       if (!includeInactive) {
         items = items.filter((item) => item.active && item.stock > 0);
       }
@@ -35,16 +39,25 @@ export async function GET(request: Request) {
           `${item.name} ${item.description} ${item.sku} ${item.category} ${item.hsn || ""}`.toLowerCase().includes(search)
         );
       }
+      const total = items.length;
       return Response.json({
-        items,
+        items: items.slice((page - 1) * limit, page * limit),
         source: "local_prototype",
-        total: items.length,
+        total,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
       });
     }
 
     const db = await getDb();
     await ensureCollections(db);
     const collection = db.collection("inventory");
+
+    if (statsOnly) {
+      const [stats] = await collection.aggregate([{ $group: { _id: null, totalSkus: { $sum: 1 }, totalStock: { $sum: "$stock" }, medicines: { $sum: { $cond: [{ $regexMatch: { input: "$category", regex: "med", options: "i" } }, 1, 0] } }, stationery: { $sum: { $cond: [{ $regexMatch: { input: "$category", regex: "stat", options: "i" } }, 1, 0] } } } }]).toArray();
+      return Response.json(stats || { totalSkus: 0, totalStock: 0, medicines: 0, stationery: 0 });
+    }
 
     if ((await collection.countDocuments()) === 0) {
       await collection.insertMany(
@@ -87,11 +100,15 @@ export async function GET(request: Request) {
       ];
     }
 
-    const items = await collection.find(filter).sort({ category: 1, name: 1 }).limit(300).toArray();
+    const total = await collection.countDocuments(filter);
+    const items = await collection.find(filter).sort({ category: 1, name: 1 }).skip((page - 1) * limit).limit(limit).toArray();
     return Response.json({
       items: items.map(({ _id, ...item }) => ({ id: _id.toString(), ...item, version: item.version || 1 })),
       source: "mongodb_cluster",
-      total: items.length,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
     });
   } catch (error) {
     console.error("GET /api/inventory error:", error);
@@ -107,9 +124,14 @@ export async function GET(request: Request) {
         `${item.name} ${item.description} ${item.sku}`.toLowerCase().includes(search)
       );
     }
+    const total = items.length;
     return Response.json({
-      items,
+      items: items.slice((page - 1) * limit, page * limit),
       source: "local_prototype",
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
       warning: error instanceof Error ? error.message : "Database connection failed, served from cache",
     });
   }
@@ -351,6 +373,13 @@ export async function DELETE(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
+    if (searchParams.get("bulk") === "true") {
+      const { skus } = await request.json() as { skus?: string[] };
+      if (!Array.isArray(skus) || !skus.length) return Response.json({ error: "skus is required" }, { status: 400 });
+      if (!process.env.MONGODB_URI) { const deletedCount = skus.filter(deleteLocalInventoryItem).length; return Response.json({ success: true, deletedCount, source: "local_prototype" }); }
+      const db = await getDb(); const result = await db.collection("inventory").deleteMany({ sku: { $in: skus } });
+      return Response.json({ success: true, deletedCount: result.deletedCount });
+    }
     const sku = searchParams.get("sku");
     const id = searchParams.get("id");
 

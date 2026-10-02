@@ -386,6 +386,8 @@
   background: #fef2f2;
   border-color: #dc2626;
 }
+.btn-danger { background:#dc2626; color:#fff; font-weight:700; padding:10px 18px; border-radius:10px; border:1px solid #dc2626; }
+.btn-danger:hover:not(:disabled) { background:#b91c1c; }
 
 /* Bulk Excel Upload Zone */
 .excel-dropzone {
@@ -524,6 +526,12 @@
   color: #166534;
   border: 1px solid #bbf7d0;
 }
+.admin-table-skeleton { display:grid; gap:10px; padding:4px 0; }
+.admin-table-skeleton .skeleton { height:24px; width:100%; }
+.modal-backdrop { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:20px; background:rgba(15,35,30,.58); backdrop-filter:blur(3px); }
+.confirmation-modal { width:min(460px,100%); background:#fff; border-radius:18px; padding:28px; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.28); }
+.confirmation-icon { width:46px; height:46px; margin:0 auto 12px; display:grid; place-items:center; border-radius:50%; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; font-size:24px; font-weight:900; }
+.confirmation-modal h2 { margin:0; color:var(--ink); font-size:22px; font-weight:800; }.confirmation-modal p { margin:10px 0 22px; color:#52605b; line-height:1.55; font-size:14px; }.confirmation-actions { display:flex; justify-content:flex-end; gap:10px; }
 
 /* Product item image display in storefront */
 .product-image-container {
@@ -557,4 +565,6 @@
   .stats-grid {
     grid-template-columns: 1fr 1fr;
   }
+  .top-nav .nav-brand { font-size:16px; min-width:0; }.nav-actions { width:100%; justify-content:space-between; }.mode-switcher { flex:1; }.mode-btn { flex:1; justify-content:center; min-height:42px; padding:6px 9px; font-size:12px; }.admin-card { padding:16px 12px; border-radius:12px; }.admin-card-header h2 { font-size:17px; }.admin-table th, .admin-table td { padding:10px; }.confirmation-modal { padding:24px 18px; }.confirmation-actions { flex-direction:column-reverse; }.confirmation-actions button { width:100%; min-height:44px; justify-content:center; }
 }
+@media (max-width:480px) { .top-nav { align-items:flex-start; flex-wrap:wrap; }.nav-actions { gap:8px; }.mode-btn { font-size:11px; }.stats-grid { grid-template-columns:1fr; }.admin-header .btn-secondary { width:100%; justify-content:center; min-height:44px; }.admin-tab { min-height:44px; padding:9px 12px; font-size:12px; }.admin-card-header > div { width:100%; }.admin-card-header input, .admin-card-header select, .admin-card-header .btn-secondary { min-height:42px; flex:1 1 100%; } }

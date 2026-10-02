@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, ChangeEvent, DragEvent, FormEvent } from "react";
 import * as XLSX from "xlsx";
+import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
+import { firebaseStorage } from "@/lib/firebase";
 
 export type AdminProduct = {
   id?: string;
@@ -49,18 +51,23 @@ interface MongoHealthData {
 interface AdminDashboardProps {
   onSwitchToStore?: () => void;
   onInventoryUpdated?: () => void;
+  userId?: string;
 }
 
 const EMOJI_OPTIONS = ["💊", "🧴", "🩹", "🍊", "📓", "🖊️", "✏️", "🗒️", "📐", "🧪", "🧼", "📦", "🩺", "💉", "🧻", "🍵"];
 const CATEGORY_OPTIONS = ["Medicine", "Stationery", "Personal Care", "First Aid", "General"];
 
-export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: AdminDashboardProps) {
+export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, userId }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<"catalog" | "add" | "excel" | "health">("catalog");
   const [products, setProducts] = useState<AdminProduct[]>([]);
+  const [inventoryStats, setInventoryStats] = useState({ totalSkus: 0, totalStock: 0, medicines: 0, stationery: 0 });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<{ sku: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [selectedSkus, setSelectedSkus] = useState<string[]>([]);
 
   // Health state
   const [health, setHealth] = useState<MongoHealthData | null>(null);
@@ -93,11 +100,13 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   const fetchInventory = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/inventory?admin=true");
+      const res = await fetch("/api/inventory?admin=true&limit=100");
       const data = await res.json();
       if (data.items) {
         setProducts(data.items);
       }
+      const statsResponse = await fetch("/api/inventory?stats=true");
+      if (statsResponse.ok) setInventoryStats(await statsResponse.json());
     } catch (err) {
       console.error("Failed to load inventory:", err);
     } finally {
@@ -134,7 +143,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   };
 
   // Handle Image Upload & convert to Data URL
-  const handleImageFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -142,14 +151,16 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
       setStatusMessage({ type: "error", text: "Please upload a valid image file (PNG, JPG, SVG, WebP)" });
       return;
     }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setImageUrl(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    if (!userId || !firebaseStorage) { setStatusMessage({ type: "error", text: "Sign in with Firebase before uploading product images." }); return; }
+    try {
+      setStatusMessage({ type: "info", text: "Uploading image securely to Firebase Storage…" });
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+      const storageRef = ref(firebaseStorage, `inventory/${userId}/${Date.now()}-${safeName}`);
+      const task = uploadBytesResumable(storageRef, file, { contentType: file.type });
+      await new Promise<void>((resolve, reject) => task.on("state_changed", undefined, reject, resolve));
+      setImageUrl(await getDownloadURL(task.snapshot.ref));
+      setStatusMessage({ type: "success", text: "Image uploaded to Firebase Storage." });
+    } catch (err) { setStatusMessage({ type: "error", text: err instanceof Error ? err.message : "Image upload failed." }); }
   };
 
   // Handle Add Item Submit
@@ -446,21 +457,29 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   };
 
   // Delete item
-  const handleDeleteItem = async (sku: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete "${name}" (${sku}) from MongoDB?`)) return;
+  const handleDeleteItem = async () => {
+    if (!deleteCandidate) return;
+    setDeleting(true);
     try {
-      const res = await fetch(`/api/inventory?sku=${encodeURIComponent(sku)}`, {
+      const res = await fetch(`/api/inventory?sku=${encodeURIComponent(deleteCandidate.sku)}`, {
         method: "DELETE",
       });
       if (res.ok) {
-        setProducts((prev) => prev.filter((p) => p.sku !== sku));
-        setStatusMessage({ type: "success", text: `Deleted "${name}" from inventory.` });
+        setProducts((prev) => prev.filter((p) => p.sku !== deleteCandidate.sku));
+        setStatusMessage({ type: "success", text: `Deleted "${deleteCandidate.name}" from inventory.` });
         onInventoryUpdated?.();
+        setDeleteCandidate(null);
+      } else {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to delete item.");
       }
     } catch (err) {
-      setStatusMessage({ type: "error", text: "Failed to delete item." });
+      setStatusMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to delete item." });
+    } finally {
+      setDeleting(false);
     }
   };
+  const handleBulkDelete = async () => { if (!selectedSkus.length) return; if (!window.confirm(`Delete ${selectedSkus.length} selected items?`)) return; try { const res = await fetch("/api/inventory?bulk=true", { method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({skus:selectedSkus}) }); const data=await res.json(); if(!res.ok) throw new Error(data.error); setProducts(prev=>prev.filter(item=>!selectedSkus.includes(item.sku))); setSelectedSkus([]); setStatusMessage({type:"success",text:`Deleted ${data.deletedCount} selected item(s).`}); onInventoryUpdated?.(); } catch(err){setStatusMessage({type:"error",text:err instanceof Error?err.message:"Bulk delete failed."})} };
 
   // Filtered products list
   const filteredProducts = products.filter((p) => {
@@ -471,9 +490,9 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
     return matchesCat && matchesSearch;
   });
 
-  const totalStock = products.reduce((acc, p) => acc + (p.stock || 0), 0);
-  const medCount = products.filter((p) => p.category.toLowerCase().includes("med")).length;
-  const statCount = products.filter((p) => p.category.toLowerCase().includes("stat")).length;
+  const totalStock = inventoryStats.totalStock;
+  const medCount = inventoryStats.medicines;
+  const statCount = inventoryStats.stationery;
 
   return (
     <div className="admin-shell">
@@ -507,7 +526,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
       <div className="stats-grid">
         <div className="stat-card">
           <span className="stat-label">Total SKUs</span>
-          <span className="stat-value">{products.length}</span>
+          <span className="stat-value">{inventoryStats.totalSkus}</span>
           <span className="stat-meta">{totalStock} total units in stock</span>
         </div>
         <div className="stat-card">
@@ -602,6 +621,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
               <button className="btn-secondary text-xs" onClick={fetchInventory}>
                 🔄 Refresh
               </button>
+              {selectedSkus.length > 0 && <button className="btn-outline-danger" onClick={handleBulkDelete}>Delete selected ({selectedSkus.length})</button>}
             </div>
           </div>
 
@@ -609,6 +629,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
             <table className="admin-table">
               <thead>
                 <tr>
+                  <th><input type="checkbox" aria-label="Select all" checked={filteredProducts.length>0 && selectedSkus.length===filteredProducts.length} onChange={e=>setSelectedSkus(e.target.checked?filteredProducts.map(p=>p.sku):[])}/></th>
                   <th>Item</th>
                   <th>SKU</th>
                   <th>Category</th>
@@ -626,7 +647,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
                 {loading ? (
                   <tr>
                     <td colSpan={11} className="text-center py-8 text-gray-500">
-                      Loading inventory from database...
+                      <div className="admin-table-skeleton" aria-label="Loading inventory" aria-busy="true">{Array.from({ length: 5 }, (_, index) => <span className="skeleton" key={index} />)}</div>
                     </td>
                   </tr>
                 ) : filteredProducts.length === 0 ? (
@@ -638,6 +659,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
                 ) : (
                   filteredProducts.map((item) => (
                     <tr key={item.sku || item.id}>
+                      <td><input type="checkbox" aria-label={`Select ${item.name}`} checked={selectedSkus.includes(item.sku)} onChange={e=>setSelectedSkus(prev=>e.target.checked?[...prev,item.sku]:prev.filter(s=>s!==item.sku))}/></td>
                       <td>
                         <div className="flex items-center gap-2.5">
                           {item.imageUrl ? (
@@ -724,7 +746,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
                       <td>
                         <button
                           className="btn-outline-danger"
-                          onClick={() => handleDeleteItem(item.sku, item.name)}
+                          onClick={() => setDeleteCandidate({ sku: item.sku, name: item.name })}
                           title="Delete Item"
                         >
                           Delete
@@ -1219,6 +1241,19 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
               )}
             </div>
           </div>
+        </div>
+      )}
+      {deleteCandidate && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => !deleting && setDeleteCandidate(null)}>
+          <section className="confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-description" onMouseDown={(event) => event.stopPropagation()}>
+            <span className="confirmation-icon" aria-hidden="true">!</span>
+            <h2 id="delete-dialog-title">Delete inventory item?</h2>
+            <p id="delete-dialog-description"><strong>{deleteCandidate.name}</strong> ({deleteCandidate.sku}) will be permanently removed from your inventory. This action cannot be undone.</p>
+            <div className="confirmation-actions">
+              <button className="btn-secondary" onClick={() => setDeleteCandidate(null)} disabled={deleting}>Cancel</button>
+              <button className="btn-danger" onClick={handleDeleteItem} disabled={deleting} autoFocus>{deleting ? "Deleting…" : "Delete item"}</button>
+            </div>
+          </section>
         </div>
       )}
     </div>
