@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./mobile.css";
+import "./admin.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NammaCare — Chat to order",
-  description: "Order medicine and stationery with live inventory and secure checkout.",
+  title: "Aaroda Books and Stationery — Chat to order",
+  description: "Order books, stationery, and essentials with live inventory and secure checkout.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

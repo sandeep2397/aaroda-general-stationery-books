@@ -4,8 +4,17 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const mongo = await mongoHealth();
+  const isOk = mongo.status === "healthy" || mongo.status === "unconfigured";
   return Response.json(
-    { service: "nammacare", status: mongo.status === "healthy" ? "healthy" : "degraded", mongo, checkedAt: new Date().toISOString() },
-    { status: mongo.status === "healthy" ? 200 : 503, headers: { "Cache-Control": "no-store" } },
+    {
+      service: "aaroda-books-and-stationery",
+      status: mongo.status === "healthy" ? "healthy" : mongo.status === "unconfigured" ? "local_prototype" : "degraded",
+      mongo,
+      checkedAt: new Date().toISOString(),
+    },
+    {
+      status: isOk ? 200 : 503,
+      headers: { "Cache-Control": "no-store" },
+    },
   );
 }

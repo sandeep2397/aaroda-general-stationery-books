@@ -1,10 +1,14 @@
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { ensureCollections } from "@/lib/mongo-schema";
+import { applyRateLimit } from "@/lib/rate-limiter";
 
 type LineInput = { id: string; quantity: number };
 
 export async function POST(request: Request) {
+  const rateLimitResponse = applyRateLimit(request, "write");
+  if (rateLimitResponse) return rateLimitResponse;
+
   try {
     const { items, customer } = await request.json() as { items: LineInput[]; customer?: { name?: string; phone?: string } };
     if (!Array.isArray(items) || !items.length) return Response.json({ error: "Your cart is empty" }, { status: 400 });
@@ -14,7 +18,9 @@ export async function POST(request: Request) {
     const products = await db.collection("inventory").find({ _id: { $in: ids }, active: true }).toArray();
     const lines = items.map((line) => {
       const product = products.find((entry) => entry._id.toString() === line.id);
-      if (!product || line.quantity < 1 || line.quantity > product.stock) throw new Error("An item is unavailable in the requested quantity");
+      if (!product || line.quantity < 1 || line.quantity > product.stock) {
+        throw new Error(`Item ${product?.name || line.id} is unavailable in the requested quantity`);
+      }
       return { inventoryId: product._id, sku: product.sku, name: product.name, price: product.price, quantity: line.quantity, lineTotal: product.price * line.quantity };
     });
     const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0), delivery = 20, total = subtotal + delivery;
