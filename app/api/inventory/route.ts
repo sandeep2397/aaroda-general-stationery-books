@@ -8,8 +8,15 @@ import {
 import { ensureCollections } from "@/lib/mongo-schema";
 import { applyRateLimit } from "@/lib/rate-limiter";
 import { ObjectId } from "mongodb";
+import { getFirebaseUser } from "@/lib/firebase-server";
+import { isAdminEmail } from "@/lib/admin";
 
 export const dynamic = "force-dynamic";
+
+async function requireAdmin(request: Request) {
+  const user = await getFirebaseUser(request);
+  return Boolean(user && isAdminEmail(user.email));
+}
 
 export async function GET(request: Request) {
   const rateLimitResponse = applyRateLimit(request, "standard");
@@ -140,6 +147,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const rateLimitResponse = applyRateLimit(request, "write");
   if (rateLimitResponse) return rateLimitResponse;
+  if (!await requireAdmin(request)) return Response.json({ error: "Administrator access is required." }, { status: 403 });
 
   try {
     const body = await request.json();
@@ -285,6 +293,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const rateLimitResponse = applyRateLimit(request, "write");
   if (rateLimitResponse) return rateLimitResponse;
+  if (!await requireAdmin(request)) return Response.json({ error: "Administrator access is required." }, { status: 403 });
 
   try {
     const body = await request.json();
@@ -380,6 +389,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const rateLimitResponse = applyRateLimit(request, "write");
   if (rateLimitResponse) return rateLimitResponse;
+  if (!await requireAdmin(request)) return Response.json({ error: "Administrator access is required." }, { status: 403 });
 
   try {
     const { searchParams } = new URL(request.url);

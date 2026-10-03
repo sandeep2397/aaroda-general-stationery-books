@@ -1,10 +1,15 @@
 import { getDb } from "@/lib/mongodb";
 import { ensureCollections } from "@/lib/mongo-schema";
 import { expireAwaitingOrders } from "@/lib/order-maintenance";
+import { getFirebaseUser } from "@/lib/firebase-server";
+import { isAdminEmail } from "@/lib/admin";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const user = await getFirebaseUser(request);
+  if (!user) return Response.json({ error: "Please sign in to view the admin dashboard." }, { status: 401 });
+  if (!isAdminEmail(user.email)) return Response.json({ error: "You do not have administrator access." }, { status: 403 });
   try {
     const db = await getDb();
     await ensureCollections(db);

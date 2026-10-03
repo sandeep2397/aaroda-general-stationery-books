@@ -3,8 +3,7 @@
 
 import { useState, useEffect, useRef, ChangeEvent, DragEvent, FormEvent } from "react";
 import * as XLSX from "xlsx";
-import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
-import { firebaseStorage } from "@/lib/firebase";
+import { firebaseAuth } from "@/lib/firebase";
 import { toast } from "react-toastify";
 import InventoryEditModal from "@/components/InventoryEditModal";
 
@@ -56,7 +55,6 @@ interface MongoHealthData {
 interface AdminDashboardProps {
   onSwitchToStore?: () => void;
   onInventoryUpdated?: () => void;
-  userId?: string;
 }
 
 type AdminOrder = { id: string; orderNumber: string; userId: string; customer?: { name?: string; email?: string }; summary?: { itemCount?: number; unitCount?: number }; total: number; currency?: string; paymentStatus: string; paymentMethod?: string; orderStatus: string; createdAt: string };
@@ -66,7 +64,7 @@ type ActivityStats = { inventoryCount: number; orderCount: number; paymentCount:
 const EMOJI_OPTIONS = ["💊", "🧴", "🩹", "🍊", "📓", "🖊️", "✏️", "🗒️", "📐", "🧪", "🧼", "📦", "🩺", "💉", "🧻", "🍵"];
 const CATEGORY_OPTIONS = ["Medicine", "Stationery", "Personal Care", "First Aid", "General"];
 
-export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, userId }: AdminDashboardProps) {
+export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<"catalog" | "orders" | "add" | "excel" | "health">("catalog");
   const [products, setProducts] = useState<AdminProduct[]>([]);
   const [inventoryStats, setInventoryStats] = useState({ totalSkus: 0, totalStock: 0, medicines: 0, stationery: 0 });
@@ -83,6 +81,12 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [payments, setPayments] = useState<AdminPayment[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
+
+  const adminHeaders = async (json = false) => {
+    const idToken = await firebaseAuth?.currentUser?.getIdToken();
+    if (!idToken) throw new Error("Your administrator session has expired. Please sign in again.");
+    return { Authorization: `Bearer ${idToken}`, ...(json ? { "Content-Type": "application/json" } : {}) };
+  };
 
   // Health state
   const [health, setHealth] = useState<MongoHealthData | null>(null);
@@ -116,7 +120,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
     setLoading(true);
     setStatsLoading(true);
     try {
-      const res = await fetch("/api/inventory?admin=true&limit=100");
+      const res = await fetch("/api/inventory?admin=true&limit=100", { headers: await adminHeaders() });
       const data = await res.json();
       if (data.items) {
         setProducts(data.items);
@@ -148,7 +152,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
   const fetchOrderActivity = async () => {
     setActivityLoading(true);
     try {
-      const response = await fetch("/api/admin/dashboard", { cache: "no-store" });
+      const response = await fetch("/api/admin/dashboard", { cache: "no-store", headers: await adminHeaders() });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to load orders");
       setActivityStats(data.stats);
@@ -175,7 +179,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
     setSku(`${prefix}-${rand}`);
   };
 
-  // Handle Image Upload & convert to Data URL
+  // Upload catalog images through the authenticated server route to Vercel Blob.
   const handleImageFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -184,15 +188,18 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
       setStatusMessage({ type: "error", text: "Please upload a valid image file (PNG, JPG, SVG, WebP)" });
       return;
     }
-    if (!userId || !firebaseStorage) { setStatusMessage({ type: "error", text: "Sign in with Firebase before uploading product images." }); return; }
+    const idToken = await firebaseAuth?.currentUser?.getIdToken();
+    if (!idToken) { setStatusMessage({ type: "error", text: "Sign in before uploading product images." }); return; }
     try {
-      setStatusMessage({ type: "info", text: "Uploading image securely to Firebase Storage…" });
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-      const storageRef = ref(firebaseStorage, `inventory/${userId}/${Date.now()}-${safeName}`);
-      const task = uploadBytesResumable(storageRef, file, { contentType: file.type });
-      await new Promise<void>((resolve, reject) => task.on("state_changed", undefined, reject, resolve));
-      setImageUrl(await getDownloadURL(task.snapshot.ref));
-      setStatusMessage({ type: "success", text: "Image uploaded to Firebase Storage." });
+      setStatusMessage({ type: "info", text: "Uploading image to Vercel Blob…" });
+      const form = new FormData();
+      form.append("file", file);
+      form.append("productId", sku.trim() || "new-inventory-item");
+      const response = await fetch("/api/inventory/upload", { method: "POST", headers: { Authorization: `Bearer ${idToken}` }, body: form });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Image upload failed.");
+      setImageUrl(data.url);
+      setStatusMessage({ type: "success", text: "Image uploaded to Vercel Blob." });
     } catch (err) { setStatusMessage({ type: "error", text: err instanceof Error ? err.message : "Image upload failed." }); }
   };
 
@@ -212,7 +219,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
     try {
       const res = await fetch("/api/inventory", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await adminHeaders(true),
         body: JSON.stringify({
           sku: sku.trim(),
           name: name.trim(),
@@ -429,12 +436,12 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
         formData.append("file", excelFile);
         res = await fetch("/api/inventory/bulk-upload", {
           method: "POST",
-          body: formData,
+          headers: await adminHeaders(), body: formData,
         });
       } else {
         res = await fetch("/api/inventory/bulk-upload", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: await adminHeaders(true),
           body: JSON.stringify({ items: parsedRows }),
         });
       }
@@ -472,7 +479,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
     try {
       const res = await fetch("/api/inventory", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: await adminHeaders(true),
         body: JSON.stringify({ sku, stock: newStock, version }),
       });
 
@@ -503,7 +510,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
     setDeleting(true);
     try {
       const res = await fetch(`/api/inventory?sku=${encodeURIComponent(deleteCandidate.sku)}`, {
-        method: "DELETE",
+        method: "DELETE", headers: await adminHeaders(),
       });
       if (res.ok) {
         setProducts((prev) => prev.filter((p) => p.sku !== deleteCandidate.sku));
@@ -522,7 +529,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
       setDeleting(false);
     }
   };
-  const handleBulkDelete = async () => { if (!selectedSkus.length) return; if (!window.confirm(`Delete ${selectedSkus.length} selected items?`)) return; try { const res = await fetch("/api/inventory?bulk=true", { method:"DELETE", headers:{"Content-Type":"application/json"}, body:JSON.stringify({skus:selectedSkus}) }); const data=await res.json(); if(!res.ok) throw new Error(data.error); setProducts(prev=>prev.filter(item=>!selectedSkus.includes(item.sku))); setSelectedSkus([]); setStatusMessage({type:"success",text:`Deleted ${data.deletedCount} selected item(s).`}); onInventoryUpdated?.(); } catch(err){setStatusMessage({type:"error",text:err instanceof Error?err.message:"Bulk delete failed."})} };
+  const handleBulkDelete = async () => { if (!selectedSkus.length) return; if (!window.confirm(`Delete ${selectedSkus.length} selected items?`)) return; try { const res = await fetch("/api/inventory?bulk=true", { method:"DELETE", headers:await adminHeaders(true), body:JSON.stringify({skus:selectedSkus}) }); const data=await res.json(); if(!res.ok) throw new Error(data.error); setProducts(prev=>prev.filter(item=>!selectedSkus.includes(item.sku))); setSelectedSkus([]); setStatusMessage({type:"success",text:`Deleted ${data.deletedCount} selected item(s).`}); onInventoryUpdated?.(); } catch(err){setStatusMessage({type:"error",text:err instanceof Error?err.message:"Bulk delete failed."})} };
 
   // Filtered products list
   const filteredProducts = products.filter((p) => {
@@ -673,18 +680,15 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
           </div>
 
           <div className="table-responsive">
-            <table className="admin-table">
+            <table className="admin-table inventory-table">
               <thead>
                 <tr>
                   <th><input type="checkbox" aria-label="Select all" checked={filteredProducts.length>0 && selectedSkus.length===filteredProducts.length} onChange={e=>setSelectedSkus(e.target.checked?filteredProducts.map(p=>p.sku):[])}/></th>
                   <th>Item</th>
                   <th>SKU</th>
-                  <th>Category</th>
                   <th>HSN / Tax</th>
                   <th>Price (₹)</th>
-                  <th>MRP (₹)</th>
                   <th>Stock</th>
-                  <th>Unit</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -692,13 +696,13 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={10} className="text-center py-8 text-gray-500">
+                    <td colSpan={8} className="text-center py-8 text-gray-500">
                       <div className="admin-table-skeleton" aria-label="Loading inventory" aria-busy="true">{Array.from({ length: 5 }, (_, index) => <span className="skeleton" key={index} />)}</div>
                     </td>
                   </tr>
                 ) : filteredProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="text-center py-8 text-gray-500">
+                    <td colSpan={8} className="text-center py-8 text-gray-500">
                       No items found matching your filters. Add an item or upload an Excel sheet.
                     </td>
                   </tr>
@@ -706,7 +710,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
                   filteredProducts.map((item) => (
                     <tr key={item.sku || item.id}>
                       <td><input type="checkbox" aria-label={`Select ${item.name}`} checked={selectedSkus.includes(item.sku)} onChange={e=>setSelectedSkus(prev=>e.target.checked?[...prev,item.sku]:prev.filter(s=>s!==item.sku))}/></td>
-                      <td>
+                      <td className="inventory-product-cell">
                         <div className="flex items-center gap-2.5">
                           {item.imageUrl ? (
                             <img
@@ -719,17 +723,24 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
                               {item.icon || "📦"}
                             </div>
                           )}
-                          <div>
-                            <span className="font-bold text-gray-900 block">{item.name}</span>
-                            <small className="text-gray-500 text-xs truncate max-w-xs block">{item.description}</small>
+                          <div className="inventory-product-copy">
+                            <div className="inventory-title-row">
+                              <span className="inventory-product-name">{item.name}</span>
+                              <button
+                                className="inventory-edit-button inventory-inline-edit-button"
+                                onClick={() => setEditCandidate(item)}
+                                title={`Edit ${item.name}`}
+                                aria-label={`Edit ${item.name}`}
+                              >
+                                <span aria-hidden="true">✏️</span>
+                              </button>
+                            </div>
+                            <small className="inventory-product-description">{item.description || "No description"}</small>
                           </div>
                         </div>
                       </td>
                       <td>
                         <span className="sku-tag">{item.sku}</span>
-                      </td>
-                      <td>
-                        <span className="badge badge-blue">{item.category}</span>
                       </td>
                       <td className="text-xs text-gray-700">
                         {item.hsn ? (
@@ -744,7 +755,6 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
                         )}
                       </td>
                       <td className="font-bold text-emerald-900">₹{item.price}</td>
-                      <td className="text-gray-400 line-through text-xs">₹{item.mrp}</td>
                       <td>
                         <div className="flex items-center gap-1.5">
                           <button
@@ -774,7 +784,6 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
                           </button>
                         </div>
                       </td>
-                      <td className="text-xs text-gray-600">{item.unit}</td>
                       <td>
                         <span
                           className={`badge ${
@@ -784,8 +793,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
                           {item.active ? (item.stock > 0 ? "In Stock" : "Out of Stock") : "Inactive"}
                         </span>
                       </td>
-                      <td>
-                        <button className="btn-secondary text-xs mr-2" onClick={() => setEditCandidate(item)}>Edit</button>
+                      <td className="inventory-actions-cell">
                         <button
                           className="btn-outline-danger"
                           onClick={() => setDeleteCandidate({ sku: item.sku, name: item.name })}
@@ -1057,7 +1065,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
         </div>
       )}
 
-      {editCandidate && <InventoryEditModal item={editCandidate} userId={userId} onClose={() => setEditCandidate(null)} onSaved={async () => { await fetchInventory(); onInventoryUpdated?.(); toast.success("Inventory item updated."); }} />}
+      {editCandidate && <InventoryEditModal item={editCandidate} onClose={() => setEditCandidate(null)} onSaved={async () => { await fetchInventory(); onInventoryUpdated?.(); toast.success("Inventory item updated."); }} />}
 
       {/* TAB 3: BULK EXCEL UPLOAD */}
       {activeTab === "excel" && (

@@ -434,6 +434,8 @@
 /* Data Tables */
 .table-responsive {
   overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   border-radius: 12px;
   border: 1px solid #e5e0d3;
 }
@@ -444,6 +446,12 @@
   text-align: left;
   font-size: 13px;
   background: #fff;
+}
+
+/* The inventory grid deliberately stays wider than a desktop card. This keeps
+   every business field readable and exposes a horizontal scrollbar when needed. */
+.admin-card .table-responsive > .inventory-table {
+  min-width: 820px;
 }
 
 .admin-table th {
@@ -459,6 +467,95 @@
   padding: 12px 14px;
   border-bottom: 1px solid #eee9df;
   vertical-align: middle;
+}
+
+.inventory-product-cell {
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+}
+
+.inventory-product-copy {
+  min-width: 0;
+  max-width: 158px;
+}
+
+.inventory-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.inventory-title-row .inventory-product-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.inventory-product-name,
+.inventory-product-description {
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.inventory-product-name {
+  color: #18231f;
+  font-weight: 800;
+  line-height: 1.3;
+  -webkit-line-clamp: 3;
+}
+
+.inventory-product-description {
+  margin-top: 3px;
+  color: #65706b;
+  font-size: 11px;
+  line-height: 1.35;
+  -webkit-line-clamp: 4;
+}
+
+.inventory-actions-cell {
+  min-width: 84px;
+  white-space: nowrap;
+}
+
+.inventory-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid #b7d5c6;
+  border-radius: 8px;
+  background: #eff8f1;
+  color: #145c42;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.inventory-edit-button:hover {
+  background: #dcf1e2;
+  box-shadow: 0 3px 10px #145c4224;
+  transform: translateY(-1px);
+}
+
+.inventory-edit-button:focus-visible {
+  outline: 3px solid #126b5340;
+  outline-offset: 2px;
+}
+
+.inventory-inline-edit-button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  width: 26px;
+  padding: 3px;
+  justify-content: center;
+  border-radius: 7px;
+  font-size: 13px;
 }
 
 .admin-table tr:hover td {

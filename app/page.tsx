@@ -306,7 +306,7 @@ export default function Home() {
     setPage(1);
   };
 
-  if (viewMode === "admin")
+  if (viewMode === "admin" && isAdminEmail(user?.email))
     return (
       <>
         <StoreNav
@@ -319,7 +319,6 @@ export default function Home() {
           onAdmin={() => setViewMode("store")}
         />
         <AdminDashboard
-          userId={user?.uid}
           onSwitchToStore={() => setViewMode("store")}
           onInventoryUpdated={() => setPage(1)}
         />
@@ -668,17 +667,15 @@ function StoreNav({
             Sign in
           </button>
         )}
-        <button
-          className="admin-toggle"
-          onClick={canAdmin ? onAdmin : onAuth}
-          title={
-            canAdmin
-              ? "Switch to Admin mode"
-              : "Sign in with an authorised admin account"
-          }
-        >
-          ⚙ Switch to Admin
-        </button>
+        {canAdmin && (
+          <button
+            className="admin-toggle"
+            onClick={onAdmin}
+            title="Switch to Admin mode"
+          >
+            ⚙ Switch to Admin
+          </button>
+        )}
         <button
           className="nav-basket"
           onClick={onStore}

@@ -3,6 +3,8 @@ import { bulkUpsertLocalInventory } from "@/lib/catalog";
 import { ensureCollections } from "@/lib/mongo-schema";
 import { applyRateLimit } from "@/lib/rate-limiter";
 import * as XLSX from "xlsx";
+import { getFirebaseUser } from "@/lib/firebase-server";
+import { isAdminEmail } from "@/lib/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -344,6 +346,8 @@ export function extractRowsFromWorkbook(buffer: ArrayBuffer | Buffer): {
 }
 
 export async function POST(request: Request) {
+  const user = await getFirebaseUser(request);
+  if (!user || !isAdminEmail(user.email)) return Response.json({ error: "Administrator access is required." }, { status: 403 });
   const rateLimitResponse = applyRateLimit(request, "bulk");
   if (rateLimitResponse) return rateLimitResponse;
 

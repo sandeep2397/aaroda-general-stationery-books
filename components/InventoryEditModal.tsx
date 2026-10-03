@@ -1,8 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useMemo, useState } from "react";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { firebaseStorage } from "@/lib/firebase";
+import { firebaseAuth } from "@/lib/firebase";
 
 export type EditableInventory = {
   id?: string;
@@ -30,12 +29,10 @@ export type EditableInventory = {
 
 export default function InventoryEditModal({
   item,
-  userId,
   onClose,
   onSaved,
 }: {
   item: EditableInventory;
-  userId?: string;
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
@@ -65,40 +62,23 @@ export default function InventoryEditModal({
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
-    if (!userId || !firebaseStorage) {
+    const idToken = await firebaseAuth?.currentUser?.getIdToken();
+    if (!idToken) {
       setError("Sign in before uploading product images.");
       return;
     }
-    const storage = firebaseStorage;
     setUploading(true);
     setError("");
     try {
       const uploaded = await Promise.all(
         files.map(async (file) => {
-          if (!file.type.startsWith("image/"))
-            throw new Error(`${file.name} is not an image`);
-          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-          const objectRef = ref(
-            storage,
-            `inventory/${productId}/${Date.now()}-${safeName}`,
-          );
-          await uploadBytes(objectRef, file, {
-            contentType: file.type,
-            customMetadata: {
-              productId,
-              sku: form.sku,
-              uploadedBy: userId,
-              originalName: file.name,
-            },
-          });
-          return {
-            url: await getDownloadURL(objectRef),
-            name: file.name,
-            contentType: file.type,
-            size: file.size,
-            productId,
-            uploadedAt: new Date().toISOString(),
-          };
+          const body = new FormData();
+          body.append("file", file);
+          body.append("productId", productId);
+          const response = await fetch("/api/inventory/upload", { method: "POST", headers: { Authorization: `Bearer ${idToken}` }, body });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || `${file.name} could not be uploaded`);
+          return { url: data.url as string, ...data.metadata };
         }),
       );
       setImages((current) => [...current, ...uploaded.map((file) => file.url)]);
@@ -240,7 +220,7 @@ export default function InventoryEditModal({
             <div>
               <b>Product images</b>
               <small>
-                {imageLabel} · Stored in Firebase Storage under product ID{" "}
+                {imageLabel} · Stored in Vercel Blob under product ID{" "}
                 {productId}
               </small>
             </div>
