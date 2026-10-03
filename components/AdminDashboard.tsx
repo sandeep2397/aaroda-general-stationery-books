@@ -1,9 +1,12 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useState, useEffect, useRef, ChangeEvent, DragEvent, FormEvent } from "react";
 import * as XLSX from "xlsx";
 import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
 import { firebaseStorage } from "@/lib/firebase";
+import { toast } from "react-toastify";
+import InventoryEditModal from "@/components/InventoryEditModal";
 
 export type AdminProduct = {
   id?: string;
@@ -18,6 +21,8 @@ export type AdminProduct = {
   unit: string;
   icon: string;
   imageUrl?: string;
+  imageUrls?: string[];
+  imageMetadata?: Array<Record<string, unknown>>;
   active: boolean;
   source?: string;
   version?: number;
@@ -54,13 +59,18 @@ interface AdminDashboardProps {
   userId?: string;
 }
 
+type AdminOrder = { id: string; orderNumber: string; userId: string; customer?: { name?: string; email?: string }; summary?: { itemCount?: number; unitCount?: number }; total: number; currency?: string; paymentStatus: string; paymentMethod?: string; orderStatus: string; createdAt: string };
+type AdminPayment = { id: string; orderId: string; orderNumber?: string; userId: string; amount: number; currency?: string; paymentMethod: string; paymentStatus: string; paymentReferenceId?: string; createdAt: string };
+type ActivityStats = { inventoryCount: number; orderCount: number; paymentCount: number; successfulPayments: number; successfulRevenue: number; awaitingPayment: number; expiredOrders: number };
+
 const EMOJI_OPTIONS = ["💊", "🧴", "🩹", "🍊", "📓", "🖊️", "✏️", "🗒️", "📐", "🧪", "🧼", "📦", "🩺", "💉", "🧻", "🍵"];
 const CATEGORY_OPTIONS = ["Medicine", "Stationery", "Personal Care", "First Aid", "General"];
 
 export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, userId }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"catalog" | "add" | "excel" | "health">("catalog");
+  const [activeTab, setActiveTab] = useState<"catalog" | "orders" | "add" | "excel" | "health">("catalog");
   const [products, setProducts] = useState<AdminProduct[]>([]);
   const [inventoryStats, setInventoryStats] = useState({ totalSkus: 0, totalStock: 0, medicines: 0, stationery: 0 });
+  const [statsLoading, setStatsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
@@ -68,6 +78,11 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
   const [deleteCandidate, setDeleteCandidate] = useState<{ sku: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [selectedSkus, setSelectedSkus] = useState<string[]>([]);
+  const [editCandidate, setEditCandidate] = useState<AdminProduct | null>(null);
+  const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   // Health state
   const [health, setHealth] = useState<MongoHealthData | null>(null);
@@ -99,6 +114,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
   // Fetch inventory
   const fetchInventory = async () => {
     setLoading(true);
+    setStatsLoading(true);
     try {
       const res = await fetch("/api/inventory?admin=true&limit=100");
       const data = await res.json();
@@ -111,6 +127,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
       console.error("Failed to load inventory:", err);
     } finally {
       setLoading(false);
+      setStatsLoading(false);
     }
   };
 
@@ -128,9 +145,25 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
     }
   };
 
+  const fetchOrderActivity = async () => {
+    setActivityLoading(true);
+    try {
+      const response = await fetch("/api/admin/dashboard", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to load orders");
+      setActivityStats(data.stats);
+      setOrders(data.orders || []);
+      setPayments(data.payments || []);
+    } catch (error) {
+      console.error("Failed to load order activity:", error);
+      toast.error(error instanceof Error ? error.message : "Unable to load order activity");
+    } finally { setActivityLoading(false); }
+  };
+
   useEffect(() => {
     fetchInventory();
     fetchHealth();
+    fetchOrderActivity();
     const interval = setInterval(fetchHealth, 15000);
     return () => clearInterval(interval);
   }, []);
@@ -202,6 +235,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
         type: "success",
         text: `Item "${name}" successfully saved into MongoDB collection 'inventory'!`,
       });
+      toast.success(`Saved ${name} successfully.`);
 
       // Reset form
       setSku("");
@@ -219,6 +253,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
         type: "error",
         text: err instanceof Error ? err.message : "Error saving item",
       });
+      toast.error(err instanceof Error ? err.message : "Error saving item");
     } finally {
       setSavingItem(false);
     }
@@ -351,11 +386,13 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
         type: "info",
         text: `Excel loaded: ${parsed.length} items parsed and ready to add to MongoDB cluster.`,
       });
+      toast.info(`Excel parsed: ${parsed.length} items ready to upload.`);
     } catch (err) {
       setStatusMessage({
         type: "error",
         text: err instanceof Error ? err.message : "Failed to parse Excel file",
       });
+      toast.error(err instanceof Error ? err.message : "Bulk upload failed");
     }
   };
 
@@ -409,6 +446,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
         type: "success",
         text: `✓ Success! Dumped and synced ${data.total || parsedRows.length} items with full metadata into MongoDB collection 'inventory'!`,
       });
+      toast.success(`Bulk upload completed: ${data.total || parsedRows.length} items.`);
 
       // Clear excel upload state
       setParsedRows([]);
@@ -422,6 +460,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
         type: "error",
         text: err instanceof Error ? err.message : "Bulk upload failed",
       });
+      toast.error(err instanceof Error ? err.message : "Bulk upload failed");
     } finally {
       setUploadingExcel(false);
     }
@@ -450,9 +489,11 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
       if (res.ok) {
         setProducts((prev) => prev.map((p) => (p.sku === sku ? { ...p, stock: newStock, version: (p.version || 1) + 1 } : p)));
         onInventoryUpdated?.();
+        toast.success("Stock updated.");
       }
     } catch (err) {
       console.error("Stock update failed:", err);
+      toast.error("Stock update failed.");
     }
   };
 
@@ -467,6 +508,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
       if (res.ok) {
         setProducts((prev) => prev.filter((p) => p.sku !== deleteCandidate.sku));
         setStatusMessage({ type: "success", text: `Deleted "${deleteCandidate.name}" from inventory.` });
+        toast.success(`Deleted ${deleteCandidate.name}.`);
         onInventoryUpdated?.();
         setDeleteCandidate(null);
       } else {
@@ -475,6 +517,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
       }
     } catch (err) {
       setStatusMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to delete item." });
+      toast.error(err instanceof Error ? err.message : "Failed to delete item.");
     } finally {
       setDeleting(false);
     }
@@ -491,8 +534,6 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
   });
 
   const totalStock = inventoryStats.totalStock;
-  const medCount = inventoryStats.medicines;
-  const statCount = inventoryStats.stationery;
 
   return (
     <div className="admin-shell">
@@ -525,19 +566,19 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
       {/* Stats Cards */}
       <div className="stats-grid">
         <div className="stat-card">
-          <span className="stat-label">Total SKUs</span>
-          <span className="stat-value">{inventoryStats.totalSkus}</span>
-          <span className="stat-meta">{totalStock} total units in stock</span>
+          <span className="stat-label">Inventory</span>
+          <span className="stat-value">{statsLoading ? <span className="skeleton stat-skeleton" /> : inventoryStats.totalSkus}</span>
+          <span className="stat-meta">{statsLoading ? <span className="skeleton stat-skeleton small" /> : `${totalStock} total units in stock`}</span>
         </div>
         <div className="stat-card">
-          <span className="stat-label">Medicines</span>
-          <span className="stat-value">{medCount}</span>
-          <span className="stat-meta">Active catalog</span>
+          <span className="stat-label">Orders</span>
+          <span className="stat-value">{activityLoading ? <span className="skeleton stat-skeleton" /> : activityStats?.orderCount || 0}</span>
+          <span className="stat-meta">{activityLoading ? <span className="skeleton stat-skeleton small" /> : `${activityStats?.awaitingPayment || 0} awaiting payment · ${activityStats?.expiredOrders || 0} expired`}</span>
         </div>
         <div className="stat-card">
-          <span className="stat-label">Stationery</span>
-          <span className="stat-value">{statCount}</span>
-          <span className="stat-meta">Active catalog</span>
+          <span className="stat-label">Payments</span>
+          <span className="stat-value">{activityLoading ? <span className="skeleton stat-skeleton" /> : activityStats?.successfulPayments || 0}</span>
+          <span className="stat-meta">{activityLoading ? <span className="skeleton stat-skeleton small" /> : `₹${activityStats?.successfulRevenue || 0} captured · ${activityStats?.paymentCount || 0} records`}</span>
         </div>
         <div className="stat-card">
           <span className="stat-label">MongoDB Cluster</span>
@@ -574,6 +615,12 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
           📦 Inventory List ({products.length})
         </button>
         <button
+          className={`admin-tab ${activeTab === "orders" ? "active" : ""}`}
+          onClick={() => { setActiveTab("orders"); fetchOrderActivity(); }}
+        >
+          🧾 Orders & Payments ({activityStats?.orderCount || 0})
+        </button>
+        <button
           className={`admin-tab ${activeTab === "add" ? "active" : ""}`}
           onClick={() => setActiveTab("add")}
         >
@@ -597,7 +644,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
       {activeTab === "catalog" && (
         <div className="admin-card">
           <div className="admin-card-header">
-            <h2>📦 Current Inventory in MongoDB Collection ('inventory')</h2>
+            <h2>📦 Current Inventory in MongoDB Collection (&apos;inventory&apos;)</h2>
             <div className="flex gap-2 flex-wrap items-center">
               <input
                 type="text"
@@ -638,7 +685,6 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
                   <th>MRP (₹)</th>
                   <th>Stock</th>
                   <th>Unit</th>
-                  <th>Ver.</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -646,13 +692,13 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={11} className="text-center py-8 text-gray-500">
+                    <td colSpan={10} className="text-center py-8 text-gray-500">
                       <div className="admin-table-skeleton" aria-label="Loading inventory" aria-busy="true">{Array.from({ length: 5 }, (_, index) => <span className="skeleton" key={index} />)}</div>
                     </td>
                   </tr>
                 ) : filteredProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="text-center py-8 text-gray-500">
+                    <td colSpan={10} className="text-center py-8 text-gray-500">
                       No items found matching your filters. Add an item or upload an Excel sheet.
                     </td>
                   </tr>
@@ -730,11 +776,6 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
                       </td>
                       <td className="text-xs text-gray-600">{item.unit}</td>
                       <td>
-                        <span className="font-mono text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
-                          v{item.version || 1}
-                        </span>
-                      </td>
-                      <td>
                         <span
                           className={`badge ${
                             item.active && item.stock > 0 ? "badge-green" : "badge-gray"
@@ -744,6 +785,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
                         </span>
                       </td>
                       <td>
+                        <button className="btn-secondary text-xs mr-2" onClick={() => setEditCandidate(item)}>Edit</button>
                         <button
                           className="btn-outline-danger"
                           onClick={() => setDeleteCandidate({ sku: item.sku, name: item.name })}
@@ -757,6 +799,27 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "orders" && (
+        <div className="admin-card">
+          <div className="admin-card-header">
+            <div><h2>🧾 Orders and successful payments</h2><p className="text-xs text-gray-500">Orders awaiting payment automatically expire after 10 minutes. The view refreshes their status before loading.</p></div>
+            <button className="btn-secondary text-xs" onClick={fetchOrderActivity}>🔄 Refresh</button>
+          </div>
+          <h3 className="admin-subheading">Orders ({orders.length})</h3>
+          <div className="table-responsive">
+            <table className="admin-table"><thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Created</th></tr></thead><tbody>
+              {activityLoading ? <tr><td colSpan={7}><div className="admin-table-skeleton">{Array.from({ length: 5 }, (_, index) => <span className="skeleton" key={index} />)}</div></td></tr> : orders.length ? orders.map(order => <tr key={order.id}><td><b>{order.orderNumber}</b><small className="block text-gray-500">{order.paymentMethod || "razorpay"}</small></td><td>{order.customer?.name || "Guest"}<small className="block text-gray-500">{order.customer?.email || order.userId}</small></td><td>{order.summary?.unitCount || order.summary?.itemCount || 0}</td><td>₹{order.total}</td><td><span className="badge badge-blue">{order.paymentStatus}</span></td><td><span className={`badge ${order.orderStatus === "placed" ? "badge-green" : order.orderStatus === "expired" ? "badge-gray" : "badge-blue"}`}>{order.orderStatus}</span></td><td>{new Date(order.createdAt).toLocaleString()}</td></tr>) : <tr><td colSpan={7} className="text-center py-8 text-gray-500">No orders have been created yet.</td></tr>}
+            </tbody></table>
+          </div>
+          <h3 className="admin-subheading">Payments ({payments.length})</h3>
+          <div className="table-responsive">
+            <table className="admin-table"><thead><tr><th>Reference</th><th>Order</th><th>User</th><th>Amount</th><th>Method</th><th>Status</th><th>Created</th></tr></thead><tbody>
+              {activityLoading ? <tr><td colSpan={7}><div className="admin-table-skeleton">{Array.from({ length: 3 }, (_, index) => <span className="skeleton" key={index} />)}</div></td></tr> : payments.length ? payments.map(payment => <tr key={payment.id}><td className="font-mono text-xs">{payment.paymentReferenceId || "—"}</td><td>{payment.orderNumber || payment.orderId}</td><td className="text-xs">{payment.userId}</td><td>₹{payment.amount}</td><td>{payment.paymentMethod}</td><td><span className={`badge ${payment.paymentStatus === "paid" ? "badge-green" : "badge-blue"}`}>{payment.paymentStatus}</span></td><td>{new Date(payment.createdAt).toLocaleString()}</td></tr>) : <tr><td colSpan={7} className="text-center py-8 text-gray-500">No payment records yet.</td></tr>}
+            </tbody></table>
           </div>
         </div>
       )}
@@ -993,6 +1056,8 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated, us
           </form>
         </div>
       )}
+
+      {editCandidate && <InventoryEditModal item={editCandidate} userId={userId} onClose={() => setEditCandidate(null)} onSaved={async () => { await fetchInventory(); onInventoryUpdated?.(); toast.success("Inventory item updated."); }} />}
 
       {/* TAB 3: BULK EXCEL UPLOAD */}
       {activeTab === "excel" && (

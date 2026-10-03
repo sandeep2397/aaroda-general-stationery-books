@@ -39,6 +39,8 @@ const inventoryValidator = {
       unit: { bsonType: "string" },
       icon: { bsonType: "string" },
       imageUrl: { bsonType: "string" },
+      imageUrls: { bsonType: "array" },
+      imageMetadata: { bsonType: "array" },
       active: { bsonType: "bool" },
       source: { bsonType: "string" },
       version: { bsonType: ["int", "long", "double"] },
@@ -57,16 +59,40 @@ const inventoryValidator = {
 const orderValidator = {
   $jsonSchema: {
     bsonType: "object",
-    required: ["orderNumber", "lines", "total", "paymentStatus", "orderStatus", "createdAt"],
+    required: ["orderNumber", "userId", "lines", "summary", "total", "paymentStatus", "orderStatus", "createdAt"],
     properties: {
       orderNumber: { bsonType: "string" },
+      userId: { bsonType: "string" },
+      customer: { bsonType: "object" },
       lines: { bsonType: "array" },
+      summary: { bsonType: "object" },
       subtotal: { bsonType: ["int", "long", "double", "decimal"] },
       delivery: { bsonType: ["int", "long", "double", "decimal"] },
       total: { bsonType: ["int", "long", "double", "decimal"] },
       currency: { enum: ["INR"] },
-      paymentStatus: { enum: ["created", "paid", "failed"] },
-      orderStatus: { enum: ["awaiting_payment", "placed", "cancelled"] },
+      paymentStatus: { enum: ["created", "paid", "failed", "pending_cod", "expired"] },
+      orderStatus: { enum: ["awaiting_payment", "placed", "cancelled", "expired"] },
+      createdAt: { bsonType: "date" },
+      updatedAt: { bsonType: "date" }
+    }
+  }
+};
+
+const paymentValidator = {
+  $jsonSchema: {
+    bsonType: "object",
+    required: ["orderId", "userId", "amount", "currency", "paymentMethod", "paymentStatus", "createdAt"],
+    properties: {
+      orderId: { bsonType: "objectId" },
+      userId: { bsonType: "string" },
+      orderNumber: { bsonType: "string" },
+      amount: { bsonType: ["int", "long", "double", "decimal"] },
+      currency: { enum: ["INR"] },
+      paymentMethod: { enum: ["razorpay", "cod"] },
+      paymentStatus: { enum: ["paid", "pending_cod", "failed"] },
+      paymentReferenceId: { bsonType: "string" },
+      razorpayOrderId: { bsonType: "string" },
+      razorpayPaymentId: { bsonType: "string" },
       createdAt: { bsonType: "date" },
       updatedAt: { bsonType: "date" }
     }
@@ -87,9 +113,21 @@ export async function ensureCollections(db: Db) {
     }
     if (!existing.has("orders")) {
       await db.createCollection("orders", { validator: orderValidator }).catch(() => undefined);
+    } else {
+      await db.command({ collMod: "orders", validator: orderValidator, validationLevel: "moderate" }).catch(() => undefined);
+    }
+    if (!existing.has("payments")) {
+      await db.createCollection("payments", { validator: paymentValidator }).catch(() => undefined);
+    } else {
+      await db.command({ collMod: "payments", validator: paymentValidator, validationLevel: "moderate" }).catch(() => undefined);
     }
     await db.collection("inventory").createIndex({ sku: 1 }, { unique: true }).catch(() => undefined);
     await db.collection("orders").createIndex({ orderNumber: 1 }, { unique: true }).catch(() => undefined);
+    await db.collection("orders").createIndex({ userId: 1, createdAt: -1 }).catch(() => undefined);
+    await db.collection("orders").createIndex({ razorpayOrderId: 1 }, { unique: true, sparse: true }).catch(() => undefined);
+    await db.collection("payments").createIndex({ orderId: 1 }, { unique: true }).catch(() => undefined);
+    await db.collection("payments").createIndex({ paymentReferenceId: 1 }, { unique: true, sparse: true }).catch(() => undefined);
+    await db.collection("payments").createIndex({ userId: 1, createdAt: -1 }).catch(() => undefined);
   } catch (err) {
     console.warn("Collection init warning:", err);
   }

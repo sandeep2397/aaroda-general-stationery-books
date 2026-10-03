@@ -82,7 +82,7 @@ export function extractRowsFromWorkbook(buffer: ArrayBuffer | Buffer): {
   let supplierPhone = "";
   let supplierAddress = "";
   let buyerName = "";
-  let buyerAddress = "";
+  const buyerAddress = "";
 
   for (let i = 0; i < Math.min(25, grid.length); i++) {
     const row = (grid[i] as string[]) || [];

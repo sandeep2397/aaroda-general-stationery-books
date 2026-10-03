@@ -153,7 +153,7 @@ export async function POST(request: Request) {
       stock,
       unit,
       icon,
-      imageUrl,
+      imageUrl, imageUrls, imageMetadata,
       active,
       version,
       hsn,
@@ -183,7 +183,8 @@ export async function POST(request: Request) {
     const cleanUnit = unit ? String(unit).trim() : "piece";
     const cleanIcon =
       icon ? String(icon).trim() : cleanCategory === "Medicine" ? "💊" : cleanCategory === "Stationery" ? "✏️" : "📦";
-    const cleanImageUrl = imageUrl ? String(imageUrl).trim() : "";
+    const cleanImageUrls = Array.isArray(imageUrls) ? imageUrls.filter((url): url is string => typeof url === "string" && Boolean(url.trim())).map((url) => url.trim()) : imageUrl ? [String(imageUrl).trim()] : [];
+    const cleanImageUrl = cleanImageUrls[0] || "";
     const cleanActive = active !== false;
     const cleanDescription = description ? String(description).trim() : "";
     const now = new Date();
@@ -200,6 +201,8 @@ export async function POST(request: Request) {
         unit: cleanUnit,
         icon: cleanIcon,
         imageUrl: cleanImageUrl,
+        imageUrls: cleanImageUrls,
+        imageMetadata: Array.isArray(imageMetadata) ? imageMetadata : [],
         active: cleanActive,
         source: "admin",
         hsn,
@@ -244,6 +247,8 @@ export async function POST(request: Request) {
         unit: cleanUnit,
         icon: cleanIcon,
         imageUrl: cleanImageUrl,
+        imageUrls: cleanImageUrls,
+        imageMetadata: Array.isArray(imageMetadata) ? imageMetadata : [],
         active: cleanActive,
         source: "admin",
         ...(hsn ? { hsn: String(hsn) } : {}),
@@ -283,16 +288,21 @@ export async function PATCH(request: Request) {
 
   try {
     const body = await request.json();
-    const { sku, id, stock, price, active, version } = body;
+    const { sku, id, version } = body;
 
     if (!sku && !id) {
       return Response.json({ error: "sku or id is required" }, { status: 400 });
     }
 
     const updateFields: Record<string, unknown> = { updatedAt: new Date() };
-    if (stock !== undefined) updateFields.stock = Number(stock);
-    if (price !== undefined) updateFields.price = Number(price);
-    if (active !== undefined) updateFields.active = Boolean(active);
+    const stringFields = ["sku", "name", "category", "description", "unit", "icon", "hsn", "invoiceNo"] as const;
+    const numberFields = ["stock", "price", "mrp", "gstPercent", "netRate", "baseRate"] as const;
+    for (const field of stringFields) if (body[field] !== undefined) updateFields[field] = String(body[field]).trim();
+    for (const field of numberFields) if (body[field] !== undefined && !Number.isNaN(Number(body[field]))) updateFields[field] = Number(body[field]);
+    if (body.active !== undefined) updateFields.active = Boolean(body.active);
+    if (Array.isArray(body.imageUrls)) updateFields.imageUrls = body.imageUrls.filter((url: unknown): url is string => typeof url === "string" && Boolean(url.trim())).map((url: string) => url.trim());
+    if (Array.isArray(updateFields.imageUrls)) updateFields.imageUrl = updateFields.imageUrls[0] || "";
+    if (Array.isArray(body.imageMetadata)) updateFields.imageMetadata = body.imageMetadata;
 
     if (!process.env.MONGODB_URI) {
       const items = getLocalInventory();

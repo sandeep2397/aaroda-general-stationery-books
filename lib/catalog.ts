@@ -13,6 +13,8 @@ export type InventoryItem = {
   unit: string;
   icon: string;
   imageUrl?: string;
+  imageUrls?: string[];
+  imageMetadata?: Array<Record<string, unknown>>;
   active: boolean;
   source: "seed" | "excel" | "admin" | "excel_invoice" | string;
   version: number;
@@ -126,5 +128,4 @@ export function deleteLocalInventoryItem(skuOrId: string): boolean {
   }
   return false;
 }
-
 
