@@ -81,7 +81,8 @@ function ProductSkeleton() {
 }
 
 function ProductImageCarousel({ product }: { product: Product }) {
-  const images = product.imageUrls?.filter(Boolean).length ? product.imageUrls.filter(Boolean) : product.imageUrl ? [product.imageUrl] : [];
+  const legacyImages = Array.isArray(product.imageUrl) ? product.imageUrl : product.imageUrl ? [product.imageUrl] : [];
+  const images = product.imageUrls?.filter(Boolean).length ? product.imageUrls.filter(Boolean) : legacyImages;
   const [activeImage, setActiveImage] = useState(0);
   if (!images.length) return <div className="product-image"><span>{product.icon || "📦"}</span></div>;
   const current = images[activeImage] || images[0];
@@ -559,8 +560,8 @@ export default function Home() {
                   product && (
                     <article key={product.id}>
                       <div className="cart-icon">
-                        {product.imageUrls?.[0] || product.imageUrl ? (
-                          <img src={product.imageUrls?.[0] || product.imageUrl} alt="" />
+                        {(product.imageUrls?.[0] || (Array.isArray(product.imageUrl) ? product.imageUrl[0] : product.imageUrl)) ? (
+                          <img src={product.imageUrls?.[0] || (Array.isArray(product.imageUrl) ? product.imageUrl[0] : product.imageUrl)} alt="" />
                         ) : (
                           product.icon
                         )}

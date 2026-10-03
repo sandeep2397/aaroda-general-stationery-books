@@ -16,7 +16,7 @@ export type EditableInventory = {
   unit: string;
   icon: string;
   active: boolean;
-  imageUrl?: string;
+  imageUrl?: string | string[];
   imageUrls?: string[];
   imageMetadata?: Array<Record<string, unknown>>;
   hsn?: string;
@@ -41,7 +41,7 @@ export default function InventoryEditModal({
     item.imageUrls?.length
       ? item.imageUrls
       : item.imageUrl
-        ? [item.imageUrl]
+        ? Array.isArray(item.imageUrl) ? item.imageUrl : [item.imageUrl]
         : [],
   );
   const [metadata, setMetadata] = useState<Array<Record<string, unknown>>>(
@@ -97,9 +97,11 @@ export default function InventoryEditModal({
     setSaving(true);
     setError("");
     try {
+      const idToken = await firebaseAuth?.currentUser?.getIdToken();
+      if (!idToken) throw new Error("Your administrator session has expired. Please sign in again.");
       const response = await fetch("/api/inventory", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           ...form,
           id: productId,

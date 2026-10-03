@@ -78,7 +78,7 @@ export async function GET(request: Request) {
           stock: item.stock,
           unit: item.unit,
           icon: item.icon,
-          imageUrl: item.imageUrl || "",
+          imageUrl: Array.isArray(item.imageUrl) ? item.imageUrl : item.imageUrl ? [item.imageUrl] : [],
           active: item.active,
           source: item.source,
           version: item.version || 1,
@@ -192,7 +192,6 @@ export async function POST(request: Request) {
     const cleanIcon =
       icon ? String(icon).trim() : cleanCategory === "Medicine" ? "💊" : cleanCategory === "Stationery" ? "✏️" : "📦";
     const cleanImageUrls = Array.isArray(imageUrls) ? imageUrls.filter((url): url is string => typeof url === "string" && Boolean(url.trim())).map((url) => url.trim()) : imageUrl ? [String(imageUrl).trim()] : [];
-    const cleanImageUrl = cleanImageUrls[0] || "";
     const cleanActive = active !== false;
     const cleanDescription = description ? String(description).trim() : "";
     const now = new Date();
@@ -208,7 +207,7 @@ export async function POST(request: Request) {
         stock: cleanStock,
         unit: cleanUnit,
         icon: cleanIcon,
-        imageUrl: cleanImageUrl,
+        imageUrl: cleanImageUrls,
         imageUrls: cleanImageUrls,
         imageMetadata: Array.isArray(imageMetadata) ? imageMetadata : [],
         active: cleanActive,
@@ -254,7 +253,7 @@ export async function POST(request: Request) {
         stock: cleanStock,
         unit: cleanUnit,
         icon: cleanIcon,
-        imageUrl: cleanImageUrl,
+        imageUrl: cleanImageUrls,
         imageUrls: cleanImageUrls,
         imageMetadata: Array.isArray(imageMetadata) ? imageMetadata : [],
         active: cleanActive,
@@ -310,7 +309,7 @@ export async function PATCH(request: Request) {
     for (const field of numberFields) if (body[field] !== undefined && !Number.isNaN(Number(body[field]))) updateFields[field] = Number(body[field]);
     if (body.active !== undefined) updateFields.active = Boolean(body.active);
     if (Array.isArray(body.imageUrls)) updateFields.imageUrls = body.imageUrls.filter((url: unknown): url is string => typeof url === "string" && Boolean(url.trim())).map((url: string) => url.trim());
-    if (Array.isArray(updateFields.imageUrls)) updateFields.imageUrl = updateFields.imageUrls[0] || "";
+    if (Array.isArray(updateFields.imageUrls)) updateFields.imageUrl = updateFields.imageUrls;
     if (Array.isArray(body.imageMetadata)) updateFields.imageMetadata = body.imageMetadata;
 
     if (!process.env.MONGODB_URI) {

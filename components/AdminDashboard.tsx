@@ -19,7 +19,7 @@ export type AdminProduct = {
   stock: number;
   unit: string;
   icon: string;
-  imageUrl?: string;
+  imageUrl?: string | string[];
   imageUrls?: string[];
   imageMetadata?: Array<Record<string, unknown>>;
   active: boolean;
@@ -57,7 +57,7 @@ interface AdminDashboardProps {
   onInventoryUpdated?: () => void;
 }
 
-type AdminOrder = { id: string; orderNumber: string; userId: string; customer?: { name?: string; email?: string }; summary?: { itemCount?: number; unitCount?: number }; total: number; currency?: string; paymentStatus: string; paymentMethod?: string; orderStatus: string; createdAt: string };
+type AdminOrder = { id: string; orderNumber: string; userId: string; customer?: { name?: string; email?: string }; lines?: Array<{ name?: string; sku?: string; quantity?: number }>; summary?: { itemCount?: number; unitCount?: number }; total: number; currency?: string; paymentStatus: string; paymentMethod?: string; orderStatus: string; fulfillmentStatus?: string; createdAt: string };
 type AdminPayment = { id: string; orderId: string; orderNumber?: string; userId: string; amount: number; currency?: string; paymentMethod: string; paymentStatus: string; paymentReferenceId?: string; createdAt: string };
 type ActivityStats = { inventoryCount: number; orderCount: number; paymentCount: number; successfulPayments: number; successfulRevenue: number; awaitingPayment: number; expiredOrders: number };
 
@@ -65,7 +65,7 @@ const EMOJI_OPTIONS = ["💊", "🧴", "🩹", "🍊", "📓", "🖊️", "✏�
 const CATEGORY_OPTIONS = ["Medicine", "Stationery", "Personal Care", "First Aid", "General"];
 
 export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"catalog" | "orders" | "add" | "excel" | "health">("catalog");
+  const [activeTab, setActiveTab] = useState<"orders" | "catalog" | "add" | "excel" | "health">("orders");
   const [products, setProducts] = useState<AdminProduct[]>([]);
   const [inventoryStats, setInventoryStats] = useState({ totalSkus: 0, totalStock: 0, medicines: 0, stationery: 0 });
   const [statsLoading, setStatsLoading] = useState(true);
@@ -81,6 +81,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [payments, setPayments] = useState<AdminPayment[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const [orderAction, setOrderAction] = useState<string | null>(null);
 
   const adminHeaders = async (json = false) => {
     const idToken = await firebaseAuth?.currentUser?.getIdToken();
@@ -104,6 +105,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   const [unit, setUnit] = useState("strip");
   const [icon, setIcon] = useState("💊");
   const [imageUrl, setImageUrl] = useState("");
+  const [imageMetadata, setImageMetadata] = useState<Array<Record<string, unknown>>>([]);
   const [active, setActive] = useState(true);
   const [savingItem, setSavingItem] = useState(false);
 
@@ -149,8 +151,8 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
     }
   };
 
-  const fetchOrderActivity = async () => {
-    setActivityLoading(true);
+  const fetchOrderActivity = async (silent = false) => {
+    if (!silent) setActivityLoading(true);
     try {
       const response = await fetch("/api/admin/dashboard", { cache: "no-store", headers: await adminHeaders() });
       const data = await response.json();
@@ -160,8 +162,8 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
       setPayments(data.payments || []);
     } catch (error) {
       console.error("Failed to load order activity:", error);
-      toast.error(error instanceof Error ? error.message : "Unable to load order activity");
-    } finally { setActivityLoading(false); }
+      if (!silent) toast.error(error instanceof Error ? error.message : "Unable to load order activity");
+    } finally { if (!silent) setActivityLoading(false); }
   };
 
   useEffect(() => {
@@ -169,8 +171,21 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
     fetchHealth();
     fetchOrderActivity();
     const interval = setInterval(fetchHealth, 15000);
-    return () => clearInterval(interval);
+    const orderInterval = setInterval(() => fetchOrderActivity(true), 10000);
+    return () => { clearInterval(interval); clearInterval(orderInterval); };
   }, []);
+
+  const handleOrderAction = async (order: AdminOrder, action: "accept" | "decline") => {
+    setOrderAction(`${order.id}:${action}`);
+    try {
+      const response = await fetch(`/api/admin/orders/${order.id}`, { method: "PATCH", headers: await adminHeaders(true), body: JSON.stringify({ action }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to update order");
+      toast.success(action === "accept" ? `Order ${order.orderNumber} accepted.` : `Order ${order.orderNumber} declined.`);
+      await fetchOrderActivity(true);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to update order"); }
+    finally { setOrderAction(null); }
+  };
 
   // Auto generate SKU based on category
   const generateSku = (cat: string) => {
@@ -199,6 +214,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Image upload failed.");
       setImageUrl(data.url);
+      setImageMetadata(data.metadata ? [data.metadata] : []);
       setStatusMessage({ type: "success", text: "Image uploaded to Vercel Blob." });
     } catch (err) { setStatusMessage({ type: "error", text: err instanceof Error ? err.message : "Image upload failed." }); }
   };
@@ -231,6 +247,8 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
           unit: unit.trim() || "piece",
           icon,
           imageUrl,
+          imageUrls: imageUrl ? [imageUrl] : [],
+          imageMetadata,
           active,
         }),
       });
@@ -252,6 +270,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
       setMrp("");
       setStock(50);
       setImageUrl("");
+      setImageMetadata([]);
 
       await fetchInventory();
       onInventoryUpdated?.();
@@ -616,16 +635,16 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
       {/* Navigation Tabs */}
       <div className="admin-tabs">
         <button
+          className={`admin-tab ${activeTab === "orders" ? "active" : ""}`}
+          onClick={() => { setActiveTab("orders"); fetchOrderActivity(); }}
+        >
+          🔔 Received Orders ({orders.filter((order) => ["placed", "accepted"].includes(order.orderStatus)).length})
+        </button>
+        <button
           className={`admin-tab ${activeTab === "catalog" ? "active" : ""}`}
           onClick={() => setActiveTab("catalog")}
         >
           📦 Inventory List ({products.length})
-        </button>
-        <button
-          className={`admin-tab ${activeTab === "orders" ? "active" : ""}`}
-          onClick={() => { setActiveTab("orders"); fetchOrderActivity(); }}
-        >
-          🧾 Orders & Payments ({activityStats?.orderCount || 0})
         </button>
         <button
           className={`admin-tab ${activeTab === "add" ? "active" : ""}`}
@@ -712,9 +731,9 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
                       <td><input type="checkbox" aria-label={`Select ${item.name}`} checked={selectedSkus.includes(item.sku)} onChange={e=>setSelectedSkus(prev=>e.target.checked?[...prev,item.sku]:prev.filter(s=>s!==item.sku))}/></td>
                       <td className="inventory-product-cell">
                         <div className="flex items-center gap-2.5">
-                          {item.imageUrl ? (
+                          {(Array.isArray(item.imageUrl) ? item.imageUrl[0] : item.imageUrl) ? (
                             <img
-                              src={item.imageUrl}
+                              src={Array.isArray(item.imageUrl) ? item.imageUrl[0] : item.imageUrl}
                               alt={item.name}
                               className="w-9 h-9 rounded-lg object-cover border border-gray-200"
                             />
@@ -814,13 +833,13 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
       {activeTab === "orders" && (
         <div className="admin-card">
           <div className="admin-card-header">
-            <div><h2>🧾 Orders and successful payments</h2><p className="text-xs text-gray-500">Orders awaiting payment automatically expire after 10 minutes. The view refreshes their status before loading.</p></div>
-            <button className="btn-secondary text-xs" onClick={fetchOrderActivity}>🔄 Refresh</button>
+            <div><h2>🔔 Received Orders</h2><p className="text-xs text-gray-500">Fresh client orders refresh every 10 seconds. Accept after checking stock, then prepare shipment.</p></div>
+            <button className="btn-secondary text-xs" onClick={() => fetchOrderActivity()}>🔄 Refresh</button>
           </div>
           <h3 className="admin-subheading">Orders ({orders.length})</h3>
           <div className="table-responsive">
-            <table className="admin-table"><thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Created</th></tr></thead><tbody>
-              {activityLoading ? <tr><td colSpan={7}><div className="admin-table-skeleton">{Array.from({ length: 5 }, (_, index) => <span className="skeleton" key={index} />)}</div></td></tr> : orders.length ? orders.map(order => <tr key={order.id}><td><b>{order.orderNumber}</b><small className="block text-gray-500">{order.paymentMethod || "razorpay"}</small></td><td>{order.customer?.name || "Guest"}<small className="block text-gray-500">{order.customer?.email || order.userId}</small></td><td>{order.summary?.unitCount || order.summary?.itemCount || 0}</td><td>₹{order.total}</td><td><span className="badge badge-blue">{order.paymentStatus}</span></td><td><span className={`badge ${order.orderStatus === "placed" ? "badge-green" : order.orderStatus === "expired" ? "badge-gray" : "badge-blue"}`}>{order.orderStatus}</span></td><td>{new Date(order.createdAt).toLocaleString()}</td></tr>) : <tr><td colSpan={7} className="text-center py-8 text-gray-500">No orders have been created yet.</td></tr>}
+            <table className="admin-table"><thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Received</th><th>Decision</th></tr></thead><tbody>
+              {activityLoading ? <tr><td colSpan={8}><div className="admin-table-skeleton">{Array.from({ length: 5 }, (_, index) => <span className="skeleton" key={index} />)}</div></td></tr> : orders.length ? orders.map(order => <tr key={order.id}><td><b>{order.orderNumber}</b><small className="block text-gray-500">{order.paymentMethod || "razorpay"}</small></td><td>{order.customer?.name || "Guest"}<small className="block text-gray-500">{order.customer?.email || order.userId}</small></td><td><div>{order.summary?.unitCount || order.summary?.itemCount || 0} unit(s)</div><small className="block text-gray-500">{order.lines?.map((line) => `${line.name || line.sku || "Item"} ×${line.quantity || 0}`).join(", ") || "—"}</small></td><td>₹{order.total}</td><td><span className="badge badge-blue">{order.paymentStatus}</span></td><td><span className={`badge ${order.fulfillmentStatus === "accepted" ? "badge-green" : order.orderStatus === "expired" || order.orderStatus === "declined" ? "badge-gray" : "badge-blue"}`}>{order.fulfillmentStatus || order.orderStatus}</span></td><td>{new Date(order.createdAt).toLocaleString()}</td><td className="order-decision-actions">{order.orderStatus === "placed" ? <><button className="btn-primary text-xs" disabled={orderAction !== null} onClick={() => handleOrderAction(order, "accept")}>{orderAction === `${order.id}:accept` ? "Accepting…" : "Accept"}</button><button className="btn-outline-danger" disabled={orderAction !== null} onClick={() => handleOrderAction(order, "decline")}>Decline</button></> : <span className="text-xs text-gray-500">{order.fulfillmentStatus || order.orderStatus}</span>}</td></tr>) : <tr><td colSpan={8} className="text-center py-8 text-gray-500">No orders have been received yet.</td></tr>}
             </tbody></table>
           </div>
           <h3 className="admin-subheading">Payments ({payments.length})</h3>

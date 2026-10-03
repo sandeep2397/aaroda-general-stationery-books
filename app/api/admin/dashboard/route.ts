@@ -21,7 +21,7 @@ export async function GET(request: Request) {
       db.collection("payments").aggregate([{ $match: { paymentStatus: "paid" } }, { $group: { _id: null, count: { $sum: 1 }, total: { $sum: "$amount" } } }]).toArray(),
       db.collection("orders").countDocuments({ orderStatus: "awaiting_payment" }),
       db.collection("orders").countDocuments({ orderStatus: "expired" }),
-      db.collection("orders").find({}, { projection: { orderNumber: 1, userId: 1, customer: 1, summary: 1, total: 1, currency: 1, paymentStatus: 1, paymentMethod: 1, orderStatus: 1, createdAt: 1 } }).sort({ createdAt: -1 }).limit(200).toArray(),
+      db.collection("orders").find({}, { projection: { orderNumber: 1, userId: 1, customer: 1, lines: 1, summary: 1, total: 1, currency: 1, paymentStatus: 1, paymentMethod: 1, orderStatus: 1, fulfillmentStatus: 1, createdAt: 1 } }).sort({ createdAt: -1 }).limit(200).toArray(),
       db.collection("payments").find({}, { projection: { orderId: 1, orderNumber: 1, userId: 1, amount: 1, currency: 1, paymentMethod: 1, paymentStatus: 1, paymentReferenceId: 1, createdAt: 1 } }).sort({ createdAt: -1 }).limit(200).toArray(),
     ]);
     return Response.json({

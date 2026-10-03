@@ -26,7 +26,8 @@ export async function POST(request: Request) {
       if (!product || line.quantity < 1 || line.quantity > product.stock) {
         throw new Error(`Item ${product?.name || line.id} is unavailable in the requested quantity`);
       }
-      return { inventoryId: product._id, productId: product._id, sku: product.sku, name: product.name, price: product.price, quantity: line.quantity, lineTotal: product.price * line.quantity, productSnapshot: { name: product.name, sku: product.sku, unit: product.unit, imageUrl: product.imageUrl || null } };
+      const productImages = Array.isArray(product.imageUrl) ? product.imageUrl : product.imageUrl ? [product.imageUrl] : [];
+      return { inventoryId: product._id, productId: product._id, sku: product.sku, name: product.name, price: product.price, quantity: line.quantity, lineTotal: product.price * line.quantity, productSnapshot: { name: product.name, sku: product.sku, unit: product.unit, imageUrl: productImages[0] || null } };
     });
     const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0), delivery = 20, total = subtotal + delivery;
     const amount = Math.round(total * 100);

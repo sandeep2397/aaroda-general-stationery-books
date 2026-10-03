@@ -38,7 +38,7 @@ const inventoryValidator = {
       stock: { bsonType: ["int", "long", "double", "decimal"] },
       unit: { bsonType: "string" },
       icon: { bsonType: "string" },
-      imageUrl: { bsonType: "string" },
+      imageUrl: { bsonType: "array", items: { bsonType: "string" } },
       imageUrls: { bsonType: "array" },
       imageMetadata: { bsonType: "array" },
       active: { bsonType: "bool" },
@@ -71,7 +71,8 @@ const orderValidator = {
       total: { bsonType: ["int", "long", "double", "decimal"] },
       currency: { enum: ["INR"] },
       paymentStatus: { enum: ["created", "paid", "failed", "pending_cod", "expired"] },
-      orderStatus: { enum: ["awaiting_payment", "placed", "cancelled", "expired"] },
+      orderStatus: { enum: ["awaiting_payment", "placed", "accepted", "declined", "cancelled", "expired"] },
+      fulfillmentStatus: { enum: ["received", "accepted", "declined", "shipped", "delivered"] },
       createdAt: { bsonType: "date" },
       updatedAt: { bsonType: "date" }
     }

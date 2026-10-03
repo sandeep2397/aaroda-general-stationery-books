@@ -12,7 +12,7 @@ export type InventoryItem = {
   stock: number;
   unit: string;
   icon: string;
-  imageUrl?: string;
+  imageUrl?: string | string[];
   imageUrls?: string[];
   imageMetadata?: Array<Record<string, unknown>>;
   active: boolean;
@@ -50,7 +50,7 @@ export const seedInventory: InventoryItem[] = [
   stock: stock as number,
   unit: unit as string,
   icon: icon as string,
-  imageUrl: "",
+  imageUrl: [],
   active: true,
   source: "seed",
   version: 1,
@@ -128,4 +128,3 @@ export function deleteLocalInventoryItem(skuOrId: string): boolean {
   }
   return false;
 }
-
