@@ -50,16 +50,12 @@ declare global {
 const categories = [
   "All",
   "Stationery",
-  "Medicine",
   "Personal Care",
-  "First Aid",
 ];
 const categoryIcons: Record<string, string> = {
   All: "⌂",
   Stationery: "✏️",
-  Medicine: "💊",
   "Personal Care": "🧴",
-  "First Aid": "🩹",
 };
 
 function ProductSkeleton() {

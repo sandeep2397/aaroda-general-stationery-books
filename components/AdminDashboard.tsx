@@ -62,7 +62,7 @@ type AdminPayment = { id: string; orderId: string; orderNumber?: string; userId:
 type ActivityStats = { inventoryCount: number; orderCount: number; paymentCount: number; successfulPayments: number; successfulRevenue: number; awaitingPayment: number; expiredOrders: number };
 
 const EMOJI_OPTIONS = ["💊", "🧴", "🩹", "🍊", "📓", "🖊️", "✏️", "🗒️", "📐", "🧪", "🧼", "📦", "🩺", "💉", "🧻", "🍵"];
-const CATEGORY_OPTIONS = ["Medicine", "Stationery", "Personal Care", "First Aid", "General"];
+const CATEGORY_OPTIONS = ["Stationery", "Personal Care"];
 
 export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<"orders" | "catalog" | "add" | "excel" | "health">("orders");
@@ -96,14 +96,14 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   // New item form state
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
-  const [category, setCategory] = useState("Medicine");
+  const [category, setCategory] = useState("Stationery");
   const [customCategory, setCustomCategory] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState<number | "">("");
   const [mrp, setMrp] = useState<number | "">("");
   const [stock, setStock] = useState<number | "">(50);
-  const [unit, setUnit] = useState("strip");
-  const [icon, setIcon] = useState("💊");
+  const [unit, setUnit] = useState("piece");
+  const [icon, setIcon] = useState("✏️");
   const [imageUrl, setImageUrl] = useState("");
   const [imageMetadata, setImageMetadata] = useState<Array<Record<string, unknown>>>([]);
   const [active, setActive] = useState(true);
@@ -685,11 +685,8 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
                 className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm bg-white"
               >
                 <option value="All">All Categories</option>
-                <option value="Medicine">Medicine</option>
                 <option value="Stationery">Stationery</option>
                 <option value="Personal Care">Personal Care</option>
-                <option value="First Aid">First Aid</option>
-                <option value="General">General</option>
               </select>
               <button className="btn-secondary text-xs" onClick={fetchInventory}>
                 🔄 Refresh
@@ -903,9 +900,8 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
                   value={category}
                   onChange={(e) => {
                     setCategory(e.target.value);
-                    if (e.target.value === "Medicine") setIcon("💊");
-                    else if (e.target.value === "Stationery") setIcon("✏️");
-                    else if (e.target.value === "First Aid") setIcon("🩹");
+                    if (e.target.value === "Stationery") setIcon("✏️");
+                    else if (e.target.value === "Personal Care") setIcon("🧴");
                   }}
                 >
                   {CATEGORY_OPTIONS.map((c) => (
