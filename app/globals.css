@@ -969,6 +969,18 @@ button {
 .checkout-button:disabled {
   opacity: 0.7;
 }
+.checkout-button-loader {
+  width: 15px;
+  height: 15px;
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: -2px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: checkout-spin .65s linear infinite;
+}
+@keyframes checkout-spin { to { transform: rotate(360deg); } }
 .success {
   min-height: calc(100vh - 72px);
   display: grid;

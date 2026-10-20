@@ -78,7 +78,7 @@ const orderValidator = {
       delivery: { bsonType: ["int", "long", "double", "decimal"] },
       total: { bsonType: ["int", "long", "double", "decimal"] },
       currency: { enum: ["INR"] },
-      paymentStatus: { enum: ["created", "paid", "failed", "pending_cod", "expired"] },
+      paymentStatus: { enum: ["created", "paid", "failed", "cash_on_delivery", "expired"] },
       orderStatus: { enum: ["awaiting_payment", "placed", "accepted", "declined", "cancelled", "expired"] },
       fulfillmentStatus: { enum: ["received", "accepted", "declined", "shipped", "delivered"] },
       createdAt: { bsonType: "date" },
@@ -121,7 +121,7 @@ const paymentValidator = {
       amount: { bsonType: ["int", "long", "double", "decimal"] },
       currency: { enum: ["INR"] },
       paymentMethod: { enum: ["razorpay", "cod"] },
-      paymentStatus: { enum: ["paid", "pending_cod", "failed"] },
+      paymentStatus: { enum: ["paid", "cash_on_delivery", "failed"] },
       paymentReferenceId: { bsonType: "string" },
       razorpayOrderId: { bsonType: "string" },
       razorpayPaymentId: { bsonType: "string" },
@@ -157,6 +157,8 @@ export async function ensureCollections(db: Db) {
     else await db.command({ collMod: "addresses", validator: addressValidator, validationLevel: "moderate" }).catch(() => undefined);
     if (!existing.has("users")) await db.createCollection("users", { validator: userValidator }).catch(() => undefined);
     else await db.command({ collMod: "users", validator: userValidator, validationLevel: "moderate" }).catch(() => undefined);
+    await db.collection("orders").updateMany({ paymentStatus: "pending_cod" }, { $set: { paymentStatus: "cash_on_delivery", updatedAt: new Date() } }).catch(() => undefined);
+    await db.collection("payments").updateMany({ paymentStatus: "pending_cod" }, { $set: { paymentStatus: "cash_on_delivery", updatedAt: new Date() } }).catch(() => undefined);
     // Backfill legacy products once, mapping retired Medicine records into Personal Care.
     await db.collection("inventory").updateMany({ categoryType: { $exists: false } }, [{ $set: { categoryType: { $cond: [{ $eq: ["$category", "Stationery"] }, "Stationery", "Personal Care"] } } }]).catch(() => undefined);
     await db.collection("inventory").updateMany({ category: "Medicine" }, { $set: { category: "Personal Care", categoryType: "Personal Care", updatedAt: new Date() } }).catch(() => undefined);

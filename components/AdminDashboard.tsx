@@ -58,7 +58,7 @@ interface AdminDashboardProps {
   onInventoryUpdated?: () => void;
 }
 
-type AdminOrder = { id: string; orderNumber: string; userId: string; customer?: { name?: string; email?: string }; lines?: Array<{ name?: string; sku?: string; quantity?: number }>; summary?: { itemCount?: number; unitCount?: number }; total: number; currency?: string; paymentStatus: string; paymentMethod?: string; orderStatus: string; fulfillmentStatus?: string; createdAt: string };
+type AdminOrder = { id: string; orderNumber: string; userId: string; customer?: { name?: string; email?: string }; deliveryAddress?: { label?: string; recipientName?: string; phone?: string; line1?: string; line2?: string; landmark?: string; city?: string; state?: string; postalCode?: string }; lines?: Array<{ name?: string; sku?: string; quantity?: number }>; summary?: { itemCount?: number; unitCount?: number }; total: number; currency?: string; paymentStatus: string; paymentMethod?: string; orderStatus: string; fulfillmentStatus?: string; createdAt: string };
 type AdminPayment = { id: string; orderId: string; orderNumber?: string; userId: string; amount: number; currency?: string; paymentMethod: string; paymentStatus: string; paymentReferenceId?: string; createdAt: string };
 type ActivityStats = { inventoryCount: number; orderCount: number; paymentCount: number; successfulPayments: number; successfulRevenue: number; awaitingPayment: number; expiredOrders: number };
 
@@ -83,6 +83,9 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   const [payments, setPayments] = useState<AdminPayment[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
   const [orderActions, setOrderActions] = useState<Set<string>>(new Set());
+  const [receivedOrderStatus, setReceivedOrderStatus] = useState("all");
+  const [receivedOrderPayment, setReceivedOrderPayment] = useState("all");
+  const [receivedOrderSort, setReceivedOrderSort] = useState("newest");
 
   const adminHeaders = async (json = false) => {
     const idToken = await firebaseAuth?.currentUser?.getIdToken();
@@ -563,6 +566,15 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   });
 
   const totalStock = inventoryStats.totalStock;
+  const visibleOrders = [...orders]
+    .filter((order) => receivedOrderStatus === "all" || (order.fulfillmentStatus || order.orderStatus) === receivedOrderStatus)
+    .filter((order) => receivedOrderPayment === "all" || (order.paymentMethod || "razorpay") === receivedOrderPayment)
+    .sort((a, b) => {
+      if (receivedOrderSort === "oldest") return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      if (receivedOrderSort === "amount-high") return b.total - a.total;
+      if (receivedOrderSort === "amount-low") return a.total - b.total;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
   return (
     <div className="admin-shell">
@@ -840,11 +852,50 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
             <div><h2>🔔 Received Orders</h2><p className="text-xs text-gray-500">Fresh client orders refresh every 10 seconds. Accept after checking stock, then prepare shipment.</p></div>
             <button className="btn-secondary text-xs" onClick={() => fetchOrderActivity()}>🔄 Refresh</button>
           </div>
-          <h3 className="admin-subheading">Orders ({orders.length})</h3>
-          <div className="table-responsive">
-            <table className="admin-table received-orders-table"><thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Received</th><th aria-label="Order actions" /></tr></thead><tbody>
-              {activityLoading ? <tr><td colSpan={8}><div className="admin-table-skeleton">{Array.from({ length: 5 }, (_, index) => <span className="skeleton" key={index} />)}</div></td></tr> : orders.length ? orders.map(order => <tr key={order.id}><td><b>{order.orderNumber}</b><small className="block text-gray-500">{order.paymentMethod || "razorpay"}</small></td><td>{order.customer?.name || "Guest"}<small className="block text-gray-500">{order.customer?.email || order.userId}</small></td><td><div>{order.summary?.unitCount || order.summary?.itemCount || 0} unit(s)</div><small className="block text-gray-500">{order.lines?.map((line) => `${line.name || line.sku || "Item"} ×${line.quantity || 0}`).join(", ") || "—"}</small></td><td>₹{order.total}</td><td><span className="badge badge-blue">{order.paymentStatus}</span></td><td><span className={`badge ${order.fulfillmentStatus === "accepted" ? "badge-green" : order.orderStatus === "expired" || order.orderStatus === "declined" ? "badge-gray" : "badge-blue"}`}>{order.fulfillmentStatus || order.orderStatus}</span></td><td>{new Date(order.createdAt).toLocaleString()}</td><td className="order-decision-actions">{order.orderStatus === "placed" ? <><button className="btn-primary compact-order-action" aria-label={`Accept ${order.orderNumber}`} disabled={orderActions.has(order.id)} onClick={() => handleOrderAction(order, "accept")}>{orderActions.has(order.id) ? <span className="inline-button-loader" aria-label="Accepting" /> : "✓ Accept"}</button><button className="btn-outline-danger compact-order-action" aria-label={`Decline ${order.orderNumber}`} disabled={orderActions.has(order.id)} onClick={() => handleOrderAction(order, "decline")}>× Decline</button></> : <span className="text-xs text-gray-500">{order.fulfillmentStatus || order.orderStatus}</span>}</td></tr>) : <tr><td colSpan={8} className="text-center py-8 text-gray-500">No orders have been received yet.</td></tr>}
-            </tbody></table>
+          <div className="received-order-toolbar" aria-label="Received order controls">
+            <span><b>{visibleOrders.length}</b> of {orders.length} orders</span>
+            <select value={receivedOrderStatus} onChange={(event) => setReceivedOrderStatus(event.target.value)} aria-label="Filter by order status">
+              <option value="all">All statuses</option>
+              <option value="placed">New / placed</option>
+              <option value="accepted">Accepted</option>
+              <option value="declined">Declined</option>
+              <option value="expired">Expired</option>
+            </select>
+            <select value={receivedOrderPayment} onChange={(event) => setReceivedOrderPayment(event.target.value)} aria-label="Filter by payment method">
+              <option value="all">All payments</option>
+              <option value="cod">Cash on Delivery</option>
+              <option value="razorpay">Online payment</option>
+            </select>
+            <select value={receivedOrderSort} onChange={(event) => setReceivedOrderSort(event.target.value)} aria-label="Sort received orders">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="amount-high">Amount: high to low</option>
+              <option value="amount-low">Amount: low to high</option>
+            </select>
+          </div>
+          <div className="received-order-list" aria-busy={activityLoading}>
+            {activityLoading ? Array.from({ length: 6 }, (_, index) => (
+              <article className="received-order-card received-order-skeleton" key={index} aria-label="Loading order">
+                <span className="skeleton skeleton-card-title" />
+                <span className="skeleton skeleton-card-line" />
+                <span className="skeleton skeleton-card-line short" />
+                <div><span className="skeleton skeleton-card-chip" /><span className="skeleton skeleton-card-chip" /></div>
+              </article>
+            )) : visibleOrders.length ? visibleOrders.map(order => {
+              const isProcessing = orderActions.has(order.id);
+              const fulfillment = order.fulfillmentStatus || order.orderStatus;
+              return <article className="received-order-card" key={order.id}>
+                <header className="received-order-card-header">
+                  <div><p className="received-order-label">ORDER</p><h4>{order.orderNumber}</h4></div>
+                  <strong>₹{order.total}</strong>
+                </header>
+                <div className="received-order-customer"><b>{order.deliveryAddress?.recipientName || order.customer?.name || "Guest"}</b><small>{order.deliveryAddress?.phone || order.customer?.email || order.userId}</small></div>
+                <div className="received-order-items"><b>{order.summary?.unitCount || order.summary?.itemCount || 0} unit(s)</b><ul>{order.lines?.map((line, index) => <li key={`${line.sku || line.name || "item"}-${index}`}>{line.name || line.sku || "Item"} ×{line.quantity || 0}</li>) || <li>No item details</li>}</ul></div>
+                {order.deliveryAddress && <div className="received-order-address"><b>Deliver to · {order.deliveryAddress.label || "Address"}</b><address>{[order.deliveryAddress.line1, order.deliveryAddress.line2, order.deliveryAddress.landmark, order.deliveryAddress.city, order.deliveryAddress.state, order.deliveryAddress.postalCode].filter(Boolean).join(", ")}</address></div>}
+                <div className="received-order-meta"><span className="badge badge-blue">{order.paymentStatus === "cash_on_delivery" ? "Cash on Delivery" : order.paymentStatus}</span><span className={`badge ${fulfillment === "accepted" ? "badge-green" : order.orderStatus === "expired" || order.orderStatus === "declined" ? "badge-gray" : "badge-blue"}`}>{fulfillment}</span><time dateTime={order.createdAt}>{new Date(order.createdAt).toLocaleString()}</time></div>
+                <footer className="received-order-actions">{order.orderStatus === "placed" ? <><button className="btn-primary compact-order-action" aria-label={`Accept ${order.orderNumber}`} disabled={isProcessing} onClick={() => handleOrderAction(order, "accept")}>{isProcessing ? <span className="inline-button-loader" aria-label="Accepting" /> : "✓ Accept"}</button><button className="btn-outline-danger compact-order-action" aria-label={`Decline ${order.orderNumber}`} disabled={isProcessing} onClick={() => handleOrderAction(order, "decline")}>× Decline</button></> : <span className="received-order-complete">{fulfillment}</span>}</footer>
+              </article>;
+            }) : <div className="received-orders-empty">No orders match the selected filters.</div>}
           </div>
           <h3 className="admin-subheading">Payments ({payments.length})</h3>
           <div className="table-responsive">

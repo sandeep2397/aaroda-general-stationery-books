@@ -48,14 +48,14 @@ export async function POST(request: Request) {
       return Response.json({ error: error instanceof Error ? error.message : "We could not reserve your items." }, { status: 409 });
     }
     const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0), delivery = deliveryFor(subtotal), total = subtotal + delivery, now = new Date();
-    const order = { orderNumber: `AR-${Date.now().toString().slice(-8)}`, userId: user.userId, customer: { userId: user.userId, name: "", email: user.email || "" }, deliveryAddress: { ...address, phone: String(address.phone).replace(/\D/g, "") }, lines, summary: { itemCount: lines.length, unitCount: lines.reduce((sum, line) => sum + line.quantity, 0), subtotal, delivery, total, freeDelivery: delivery === 0 }, subtotal, delivery, total, currency: "INR", paymentStatus: paymentMethod === "cod" ? "pending_cod" : "created", orderStatus: paymentMethod === "cod" ? "placed" : "awaiting_payment", paymentMethod, idempotencyKey, expiresAt: paymentMethod === "razorpay" ? new Date(now.getTime() + 600000) : null, inventoryFinalized: paymentMethod === "cod", stockReserved: true, createdAt: now, updatedAt: now };
+    const order = { orderNumber: `AR-${Date.now().toString().slice(-8)}`, userId: user.userId, customer: { userId: user.userId, name: "", email: user.email || "" }, deliveryAddress: { ...address, phone: String(address.phone).replace(/\D/g, "") }, lines, summary: { itemCount: lines.length, unitCount: lines.reduce((sum, line) => sum + line.quantity, 0), subtotal, delivery, total, freeDelivery: delivery === 0 }, subtotal, delivery, total, currency: "INR", paymentStatus: paymentMethod === "cod" ? "cash_on_delivery" : "created", orderStatus: paymentMethod === "cod" ? "placed" : "awaiting_payment", paymentMethod, idempotencyKey, expiresAt: paymentMethod === "razorpay" ? new Date(now.getTime() + 600000) : null, inventoryFinalized: paymentMethod === "cod", stockReserved: true, createdAt: now, updatedAt: now };
     let inserted;
     try { inserted = await orders.insertOne(order); } catch (error) {
       await Promise.all(reserved.map((line) => inventory.updateOne({ _id: line.inventoryId }, { $inc: { stock: line.quantity, reservedStock: -line.quantity, version: 1 }, $set: { updatedAt: new Date() } })));
       const duplicate = await orders.findOne({ userId: user.userId, idempotencyKey }); if (duplicate) return Response.json(existingResult(duplicate)); throw error;
     }
     if (paymentMethod === "cod") {
-      await db.collection("payments").insertOne({ orderId: inserted.insertedId, userId: user.userId, orderNumber: order.orderNumber, amount: total, currency: "INR", paymentMethod: "cod", paymentStatus: "pending_cod", paymentReferenceId: `COD-${order.orderNumber}`, createdAt: now, updatedAt: now });
+      await db.collection("payments").insertOne({ orderId: inserted.insertedId, userId: user.userId, orderNumber: order.orderNumber, amount: total, currency: "INR", paymentMethod: "cod", paymentStatus: "cash_on_delivery", paymentReferenceId: `COD-${order.orderNumber}`, createdAt: now, updatedAt: now });
       return Response.json({ mongoOrderId: inserted.insertedId.toString(), orderNumber: order.orderNumber, paymentMethod: "cod", orderStatus: "placed", subtotal, delivery, total });
     }
     const keyId = process.env.RAZORPAY_KEY_ID, keySecret = process.env.RAZORPAY_KEY_SECRET;

@@ -649,8 +649,9 @@ export default function Home() {
                   className="checkout-button cod-checkout"
                   onClick={() => checkout("cod")}
                   disabled={paying}
+                  aria-busy={paying}
                 >
-                  Cash on Delivery
+                  {paying ? <><span className="checkout-button-loader" aria-hidden="true" /> Processing order…</> : "Cash on Delivery"}
                 </button>
               </div>
             </footer>
