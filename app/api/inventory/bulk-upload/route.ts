@@ -5,6 +5,7 @@ import { applyRateLimit } from "@/lib/rate-limiter";
 import * as XLSX from "xlsx";
 import { getFirebaseUser } from "@/lib/firebase-server";
 import { isAdminEmail } from "@/lib/admin";
+import { CATEGORY_TYPES } from "@/lib/mongo-schema";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export interface ParsedItem {
   sku: string;
   name: string;
   category: string;
+  categoryType: string;
   description: string;
   price: number;
   mrp: number;
@@ -171,6 +173,7 @@ export function extractRowsFromWorkbook(buffer: ArrayBuffer | Buffer): {
       const amount = amtCol >= 0 ? Number(r[amtCol]) || 0 : netRate * qty;
 
       const category = "Stationery";
+      const categoryType = "Stationery";
       const sku = billNo ? `STA-${billNo}-${String(srNum).padStart(3, "0")}` : `STA-INV-${String(srNum).padStart(3, "0")}`;
 
       // Extract MRP if mentioned in parentheses e.g. ( ₹60 ) or ₹50
@@ -191,6 +194,7 @@ export function extractRowsFromWorkbook(buffer: ArrayBuffer | Buffer): {
         sku,
         name: particulars,
         category,
+        categoryType,
         description: `HSN: ${hsn || "9608"} • GST: ${gst}% • Base: ₹${baseRate}`,
         price: netRate || baseRate || 10,
         mrp: mrp || netRate || 10,
@@ -261,8 +265,13 @@ export function extractRowsFromWorkbook(buffer: ArrayBuffer | Buffer): {
       normalizedMap.category ||
       normalizedMap.categoryname ||
       normalizedMap.type ||
-      "Medicine"
-    ).trim() || "Medicine";
+      ""
+    ).trim();
+    const categoryType = String(normalizedMap.categorytype || normalizedMap.maintype || normalizedMap.department || "").trim();
+    if (!categoryType || !CATEGORY_TYPES.includes(categoryType as typeof CATEGORY_TYPES[number])) {
+      warnings.push(`Row ${i + 2}: skipped because Category Type is required (Stationery, Personal Care, Kids, Electronics, Beauty, or Decor)`);
+      continue;
+    }
 
     const hsn = String(normalizedMap.hsn || normalizedMap.hsnsac || "").trim();
     const gstPercent = Number(normalizedMap.gst || normalizedMap.gstpercent || normalizedMap.tax || 0) || undefined;
@@ -322,6 +331,7 @@ export function extractRowsFromWorkbook(buffer: ArrayBuffer | Buffer): {
       sku,
       name,
       category,
+      categoryType,
       description,
       price,
       mrp,
@@ -386,6 +396,7 @@ export async function POST(request: Request) {
             sku: String(item.sku || `ITEM-${idx + 1}`).trim().toUpperCase(),
             name: String(item.name || "").trim(),
             category: String(item.category || "General").trim(),
+            categoryType: String(item.categoryType || "").trim(),
             description: String(item.description || "").trim(),
             price: Math.max(0, Number(item.price) || 0),
             mrp: Math.max(Number(item.price) || 0, Number(item.mrp) || Number(item.price) || 0),
@@ -412,6 +423,8 @@ export async function POST(request: Request) {
     if (!rows.length) {
       return Response.json({ error: "No valid inventory rows found in the uploaded file" }, { status: 400 });
     }
+    const invalidCategory = rows.find((row) => !CATEGORY_TYPES.includes(row.categoryType as typeof CATEGORY_TYPES[number]));
+    if (invalidCategory) return Response.json({ error: `Category Type is required for ${invalidCategory.name}. Use: ${CATEGORY_TYPES.join(", ")}.` }, { status: 400 });
 
     const now = new Date();
 
@@ -419,6 +432,7 @@ export async function POST(request: Request) {
       const savedItems = bulkUpsertLocalInventory(
         rows.map((r) => ({
           ...r,
+          categoryType: r.categoryType as "Stationery" | "Personal Care" | "Kids" | "Electronics" | "Beauty" | "Decor",
           source: r.invoiceNo ? "excel_invoice" : "excel",
         }))
       );
@@ -447,6 +461,7 @@ export async function POST(request: Request) {
             sku: item.sku,
             name: item.name,
             category: item.category,
+            categoryType: item.categoryType,
             description: item.description,
             price: item.price,
             mrp: item.mrp,

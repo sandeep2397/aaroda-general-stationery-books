@@ -213,6 +213,16 @@
   background: rgba(255, 255, 255, 0.5);
 }
 
+.order-decision-actions { white-space: nowrap; }
+.compact-order-action { min-height: 28px !important; padding: 4px 7px !important; font-size: 10px !important; line-height: 1.1; }
+.inline-button-loader { width:12px; height:12px; display:inline-block; border:2px solid #ffffff66; border-top-color:#fff; border-radius:50%; animation:order-action-spin .65s linear infinite; }
+@keyframes order-action-spin { to { transform:rotate(360deg); } }
+.received-orders-table { table-layout: fixed; min-width: 1080px; }
+.received-orders-table th:nth-child(5), .received-orders-table td:nth-child(5) { width: 84px; }
+.received-orders-table th:nth-child(6), .received-orders-table td:nth-child(6) { width: 94px; }
+.received-orders-table th:nth-child(8), .received-orders-table td:nth-child(8) { width: 154px; }
+.received-orders-table .order-decision-actions { min-width: 154px; }
+
 /* Cards & Panels */
 .admin-card {
   background: #fff;

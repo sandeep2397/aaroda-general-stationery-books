@@ -1,4 +1,4 @@
-export type Category = "Medicine" | "Stationery" | string;
+export type Category = "Stationery" | "Personal Care" | string;
 
 export type InventoryItem = {
   id?: string;
@@ -6,6 +6,7 @@ export type InventoryItem = {
   sku: string;
   name: string;
   category: Category;
+  categoryType: "Stationery" | "Personal Care" | "Kids" | "Electronics" | "Beauty" | "Decor";
   description: string;
   price: number;
   mrp: number;
@@ -30,11 +31,11 @@ export type InventoryItem = {
 
 const now = () => new Date();
 export const seedInventory: InventoryItem[] = [
-  ["MED-001","Paracetamol 500mg","Medicine","10 tablets • Dolo",32,35,60,"strip","💊"],
-  ["MED-002","Cetirizine 10mg","Medicine","10 tablets • Generic",24,28,45,"strip","💊"],
-  ["MED-003","Digene Mint","Medicine","15 tablets • Abbott",29,32,38,"strip","🧴"],
-  ["MED-004","Band-Aid Washproof","Medicine","10 strips • J&J",45,50,25,"pack","🩹"],
-  ["MED-005","Vitamin C 500mg","Medicine","15 tablets • Limcee",38,42,52,"strip","🍊"],
+  ["PER-001","Hand Wash","Personal Care","250ml • Gentle daily care",85,99,60,"bottle","🧴"],
+  ["PER-002","Tissue Box","Personal Care","100 pulls • Soft touch",55,65,45,"box","🧻"],
+  ["PER-003","Lip Balm","Personal Care","Natural moisture care",79,90,38,"piece","✨"],
+  ["PER-004","Body Lotion","Personal Care","200ml • Everyday hydration",145,165,25,"bottle","🧴"],
+  ["PER-005","Face Wash","Personal Care","100ml • Fresh cleanse",118,135,52,"bottle","🧴"],
   ["STA-001","Classmate Notebook","Stationery","172 pages • Ruled",65,70,32,"piece","📓"],
   ["STA-002","Blue Ball Pens","Stationery","Pack of 5 • Reynolds",50,55,40,"pack","🖊️"],
   ["STA-003","Apsara Pencils","Stationery","Pack of 10 • Extra dark",55,60,35,"pack","✏️"],
@@ -44,6 +45,7 @@ export const seedInventory: InventoryItem[] = [
   sku: sku as string,
   name: name as string,
   category: category as Category,
+  categoryType: category === "Stationery" ? "Stationery" : "Personal Care",
   description: description as string,
   price: price as number,
   mrp: mrp as number,
@@ -86,12 +88,13 @@ export function upsertLocalInventoryItem(item: Partial<InventoryItem> & { sku: s
     sku: item.sku.trim().toUpperCase(),
     name: item.name.trim(),
     category: item.category || "General",
+    categoryType: item.categoryType || (item.category === "Stationery" ? "Stationery" : "Personal Care"),
     description: item.description || "",
     price: Number(item.price) || 0,
     mrp: Number(item.mrp) || Number(item.price) || 0,
     stock: Number(item.stock) || 0,
     unit: item.unit || "piece",
-    icon: item.icon || (item.category === "Medicine" ? "💊" : item.category === "Stationery" ? "✏️" : "📦"),
+    icon: item.icon || (item.category === "Stationery" ? "✏️" : item.category === "Personal Care" ? "🧴" : "📦"),
     imageUrl: item.imageUrl || "",
     active: item.active !== false,
     source: item.source || "admin",

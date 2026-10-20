@@ -14,6 +14,7 @@ type Product = {
   sku: string;
   name: string;
   category: string;
+  categoryType?: string;
   description: string;
   price: number;
   mrp: number;
@@ -23,6 +24,7 @@ type Product = {
   imageUrl?: string;
   imageUrls?: string[];
 };
+type DeliveryAddress = { id: string; label: string; recipientName: string; phone: string; line1: string; line2?: string; landmark?: string; city: string; state: string; postalCode: string; location?: { lat?: string; lon?: string }; isDefault?: boolean };
 type RazorpayResult = {
   razorpay_order_id: string;
   razorpay_payment_id: string;
@@ -51,11 +53,20 @@ const categories = [
   "All",
   "Stationery",
   "Personal Care",
+  "Kids",
+  "Electronics",
+  "Beauty",
+  "Decor",
 ];
+const ONLINE_PAYMENT_ENABLED = false;
 const categoryIcons: Record<string, string> = {
   All: "⌂",
   Stationery: "✏️",
   "Personal Care": "🧴",
+  Kids: "🧸",
+  Electronics: "🔌",
+  Beauty: "✨",
+  Decor: "🏠",
 };
 
 function ProductSkeleton() {
@@ -107,6 +118,11 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [addresses, setAddresses] = useState<DeliveryAddress[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState("");
+  const [addressOpen, setAddressOpen] = useState(false);
+  const [addressSaving, setAddressSaving] = useState(false);
+  const [addressForm, setAddressForm] = useState({ label: "Home", recipientName: "", phone: "", line1: "", line2: "", landmark: "", city: "", state: "", postalCode: "", location: undefined as DeliveryAddress["location"], isDefault: false });
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
   useEffect(
@@ -119,6 +135,9 @@ export default function Home() {
         : (setAuthReady(true), undefined),
     [],
   );
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("addresses") === "1") setAddressOpen(true);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -127,11 +146,20 @@ export default function Home() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+  const loadAddresses = async () => {
+    const token = await firebaseAuth?.currentUser?.getIdToken();
+    if (!token) return;
+    const response = await fetch("/api/addresses", { headers: { Authorization: `Bearer ${token}` } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Unable to load addresses.");
+    setAddresses(data.addresses || []); setSelectedAddressId((current) => current || data.addresses?.[0]?.id || "");
+  };
+  useEffect(() => { if (user) loadAddresses().catch(() => undefined); else { setAddresses([]); setSelectedAddressId(""); } }, [user]);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     fetch(
-      `/api/inventory?category=${encodeURIComponent(category)}&search=${encodeURIComponent(search)}&page=${page}&limit=50`,
+      `/api/inventory?categoryType=${encodeURIComponent(category)}&search=${encodeURIComponent(search)}&page=${page}&limit=50`,
       { signal: controller.signal },
     )
       .then((response) => response.json())
@@ -184,6 +212,8 @@ export default function Home() {
     (sum, [id, quantity]) => sum + (knownProducts[id]?.price || 0) * quantity,
     0,
   );
+  const delivery = subtotal >= 199 ? 0 : 20;
+  const orderTotal = subtotal + delivery;
   const cartItems = useMemo(
     () =>
       Object.entries(cart)
@@ -201,19 +231,19 @@ export default function Home() {
       toast.error("Please sign in before placing an order.");
       return;
     }
+    const selectedAddress = addresses.find((address) => address.id === selectedAddressId);
+    if (!selectedAddress) { setAddressOpen(true); toast.error("Add a delivery address before checkout."); return; }
+    const idToken = await user.getIdToken();
+    if (!idToken) { toast.error("Your sign-in session expired. Please sign in again."); return; }
     setPaying(true);
     setError("");
     try {
       const response = await fetch("/api/orders", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}`, "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({
           paymentMethod,
-          customer: {
-            userId: user.uid,
-            name: user.displayName || "",
-            email: user.email || "",
-          },
+          address: selectedAddress,
           items: Object.entries(cart)
             .filter(([, q]) => q > 0)
             .map(([id, quantity]) => ({ id, quantity })),
@@ -225,7 +255,7 @@ export default function Home() {
         setConfirmed({
           orderNumber: order.orderNumber,
           paymentMethod: "cod",
-          total: subtotal + 20,
+          total: order.total,
           unitCount: units,
         });
         setCart({});
@@ -262,7 +292,7 @@ export default function Home() {
             setConfirmed({
               orderNumber: order.orderNumber,
               paymentMethod: "razorpay",
-              total: subtotal + 20,
+              total: order.total,
               unitCount: units,
             });
             setCart({});
@@ -302,6 +332,15 @@ export default function Home() {
     setCategory(next);
     setPage(1);
   };
+  async function saveAddress(event: React.FormEvent) {
+    event.preventDefault(); const token = await firebaseAuth?.currentUser?.getIdToken(); if (!token) return;
+    setAddressSaving(true);
+    try { const response = await fetch("/api/addresses", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ ...addressForm, isDefault: !addresses.length || addressForm.isDefault }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not save address."); setAddresses((current) => [data.address, ...current.map((address) => addressForm.isDefault ? { ...address, isDefault: false } : address)]); setSelectedAddressId(data.address.id); setAddressOpen(false); toast.success("Delivery address saved."); } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save address."); } finally { setAddressSaving(false); }
+  }
+  function useCurrentLocation() {
+    if (!navigator.geolocation) { toast.error("Location is not supported by this browser."); return; }
+    navigator.geolocation.getCurrentPosition(async ({ coords }) => { try { const response = await fetch(`/api/addresses/geocode?lat=${coords.latitude}&lon=${coords.longitude}`); const data = await response.json(); const address = data.results?.[0]?.address || {}; setAddressForm((current) => ({ ...current, line1: current.line1 || String(address.road || address.neighbourhood || ""), city: current.city || String(address.city || address.town || address.village || ""), state: current.state || String(address.state || ""), postalCode: current.postalCode || String(address.postcode || ""), location: { lat: String(coords.latitude), lon: String(coords.longitude) } })); toast.success("Location found. Please confirm the address details."); } catch { toast.info("Location found. Please complete the address manually."); } }, () => toast.error("We could not access your location."), { enableHighAccuracy: false, timeout: 10000 });
+  }
 
   if (viewMode === "admin" && isAdminEmail(user?.email))
     return (
@@ -314,6 +353,7 @@ export default function Home() {
           onSignOut={() => firebaseAuth && signOut(firebaseAuth)}
           onStore={() => setViewMode("store")}
           onAdmin={() => setViewMode("store")}
+          onAddresses={() => location.assign("/?addresses=1")}
         />
         <AdminDashboard
           onSwitchToStore={() => setViewMode("store")}
@@ -333,6 +373,7 @@ export default function Home() {
           onSignOut={() => firebaseAuth && signOut(firebaseAuth)}
           onStore={() => setConfirmed(null)}
           onAdmin={() => setViewMode("admin")}
+          onAddresses={() => location.assign("/?addresses=1")}
         />
         <main className="success">
           <section>
@@ -371,6 +412,7 @@ export default function Home() {
         onSignOut={() => firebaseAuth && signOut(firebaseAuth)}
         onStore={() => {}}
         onAdmin={() => setViewMode("admin")}
+        onAddresses={() => setAddressOpen(true)}
       />
       <main className="store-main">
         <section className="store-hero">
@@ -425,17 +467,18 @@ export default function Home() {
               ×
             </button>
           </label>
-          <div className="store-categories" role="tablist">
+          <div className="category-showcase" role="tablist" aria-label="Shop by category">
             {categories.map((item) => (
               <button
                 key={item}
                 role="tab"
                 aria-selected={category === item}
-                className={category === item ? "active" : ""}
+                className={`category-card ${category === item ? "active" : ""}`}
                 onClick={() => chooseCategory(item)}
               >
-                <span>{categoryIcons[item]}</span>
-                {item}
+                <span className="category-card-icon">{categoryIcons[item]}</span>
+                <b>{item === "All" ? "Everything" : item}</b>
+                <small>{item === "All" ? "Browse all" : "Shop now"}</small>
               </button>
             ))}
           </div>
@@ -583,20 +626,25 @@ export default function Home() {
               </div>
               <div>
                 <span>Delivery</span>
-                <b>₹20</b>
+                <b>{delivery === 0 ? <><s>₹20</s> <em>FREE</em></> : `₹${delivery}`}</b>
               </div>
+              {delivery > 0 && <p className="delivery-hint">Add ₹{199 - subtotal} more for free delivery.</p>}
               <div className="cart-total">
                 <span>Total</span>
-                <b>₹{subtotal + 20}</b>
+                <b>₹{orderTotal}</b>
               </div>
+              <section className="delivery-address-summary">
+                <div><b>Deliver to</b>{addresses.find((address) => address.id === selectedAddressId) ? <small>{addresses.find((address) => address.id === selectedAddressId)?.label} · {addresses.find((address) => address.id === selectedAddressId)?.line1}</small> : <small>Add your delivery address</small>}</div>
+                <button type="button" onClick={() => setAddressOpen(true)}>Change</button>
+              </section>
               <div className="checkout-actions">
-                <button
+                {ONLINE_PAYMENT_ENABLED && <button
                   className="checkout-button"
                   onClick={() => checkout("razorpay")}
                   disabled={paying}
                 >
                   {paying ? "Preparing secure payment…" : "Pay online →"}
-                </button>
+                </button>}
                 <button
                   className="checkout-button cod-checkout"
                   onClick={() => checkout("cod")}
@@ -609,6 +657,7 @@ export default function Home() {
           </aside>
         </div>
       )}
+      {addressOpen && <div className="address-overlay" onMouseDown={() => setAddressOpen(false)}><section className="address-modal" role="dialog" aria-modal="true" aria-label="Delivery address" onMouseDown={(event) => event.stopPropagation()}><header><div><p className="eyebrow">DELIVERY ADDRESS</p><h2>Where should we deliver?</h2></div><button onClick={() => setAddressOpen(false)} aria-label="Close">×</button></header>{addresses.length > 0 && <div className="saved-addresses">{addresses.map((address) => <button type="button" key={address.id} className={selectedAddressId === address.id ? "selected" : ""} onClick={() => { setSelectedAddressId(address.id); setAddressOpen(false); }}><b>{address.label}{address.isDefault ? " · Default" : ""} · {address.recipientName}</b><small>{address.line1}, {address.city}, {address.state} — {address.postalCode}</small></button>)}</div>}<form className="address-form" onSubmit={saveAddress}><div className="address-form-top"><b>Add a new address</b><button type="button" onClick={useCurrentLocation}>⌖ Use my location</button></div><div className="address-grid"><label>Label<input value={addressForm.label} onChange={(e) => setAddressForm({ ...addressForm, label: e.target.value })} required /></label><label>Name<input value={addressForm.recipientName} onChange={(e) => setAddressForm({ ...addressForm, recipientName: e.target.value })} required /></label><label>Mobile<input inputMode="numeric" value={addressForm.phone} onChange={(e) => setAddressForm({ ...addressForm, phone: e.target.value })} required /></label><label>House / building<input value={addressForm.line1} onChange={(e) => setAddressForm({ ...addressForm, line1: e.target.value })} required /></label><label>Area / street<input value={addressForm.line2} onChange={(e) => setAddressForm({ ...addressForm, line2: e.target.value })} /></label><label>Landmark<input value={addressForm.landmark} onChange={(e) => setAddressForm({ ...addressForm, landmark: e.target.value })} /></label><label>City<input value={addressForm.city} onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })} required /></label><label>State<input value={addressForm.state} onChange={(e) => setAddressForm({ ...addressForm, state: e.target.value })} required /></label><label>PIN code<input inputMode="numeric" value={addressForm.postalCode} onChange={(e) => setAddressForm({ ...addressForm, postalCode: e.target.value })} required /></label></div><label className="default-address-option"><input type="checkbox" checked={addressForm.isDefault} onChange={(e) => setAddressForm({ ...addressForm, isDefault: e.target.checked })} /> Make this my default address</label><button className="checkout-button" disabled={addressSaving}>{addressSaving ? "Saving address…" : "Save delivery address"}</button></form></section></div>}
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
     </div>
   );
@@ -621,6 +670,7 @@ function StoreNav({
   onSignOut,
   onStore,
   onAdmin,
+  onAddresses,
 }: {
   cartCount: number;
   user: User | null;
@@ -629,9 +679,16 @@ function StoreNav({
   onSignOut: () => void;
   onStore: () => void;
   onAdmin: () => void;
+  onAddresses: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [avatarImageFailed, setAvatarImageFailed] = useState(false);
   const canAdmin = isAdminEmail(user?.email);
+  const profileLabel = user?.displayName || user?.email?.split("@")[0] || "User";
+  const initials = profileLabel.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "U";
+  const avatarColours = ["#216e5b", "#6e4f9d", "#a8503d", "#226b96", "#8b5c25", "#9c3e71"];
+  const avatarColour = avatarColours[[...profileLabel].reduce((hash, character) => ((hash * 31) + character.charCodeAt(0)) >>> 0, 0) % avatarColours.length];
+  const hasProfileImage = Boolean(user?.photoURL) && !avatarImageFailed;
   return (
     <nav className="store-nav">
       <button className="store-logo" onClick={onStore}>
@@ -645,7 +702,7 @@ function StoreNav({
         {user ? (
           <div className="profile-wrap">
             <button className="nav-user" onClick={() => setOpen(!open)}>
-              {user.photoURL ? <img src={user.photoURL} alt="" /> : "👤"}
+              {hasProfileImage ? <img src={user.photoURL!} alt="" onError={() => setAvatarImageFailed(true)} /> : <span className="initials-avatar" style={{ backgroundColor: avatarColour }} aria-label={`${initials} avatar`}>{initials}</span>}
               <span>
                 {user.displayName?.split(" ")[0] || user.email?.split("@")[0]}
               </span>
@@ -654,6 +711,9 @@ function StoreNav({
               <div className="profile-menu">
                 <button onClick={() => location.assign("/orders")}>
                   📦 Orders
+                </button>
+                <button onClick={onAddresses}>
+                  📍 Saved addresses
                 </button>
                 <button onClick={onSignOut}>↪ Logout</button>
               </div>

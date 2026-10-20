@@ -9,6 +9,7 @@ export type EditableInventory = {
   sku: string;
   name: string;
   category: string;
+  categoryType?: string;
   description: string;
   price: number;
   mrp: number;
@@ -158,6 +159,7 @@ export default function InventoryEditModal({
               value={form.category}
               onChange={(value) => update("category", value)}
             />
+            <label className="edit-field"><span>Category type</span><select value={form.categoryType || "Stationery"} onChange={(event) => update("categoryType", event.target.value)}>{["Stationery", "Personal Care", "Kids", "Electronics", "Beauty", "Decor"].map((type) => <option key={type}>{type}</option>)}</select></label>
             <Field
               label="Unit"
               value={form.unit}

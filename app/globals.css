@@ -63,7 +63,7 @@
   position: absolute;
   right: 0;
   top: 46px;
-  width: 150px;
+  width: 210px;
   background: #fff;
   border-radius: 12px;
   padding: 6px;
@@ -79,6 +79,7 @@
   color: var(--ink);
   font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
 }
 .profile-menu button:hover {
   background: #edf5e7;
@@ -145,6 +146,7 @@
   height: 30px;
   border-radius: 9px;
 }
+.initials-avatar { width:30px; height:30px; min-width:30px; height:30px; min-height:30px; display:grid; place-items:center; flex:0 0 30px; border-radius:50%; color:#fff; font-size:11px; font-weight:900; line-height:1; letter-spacing:.02em; text-transform:uppercase; }
 .auth-overlay {
   position: fixed;
   inset: 0;
@@ -1013,6 +1015,20 @@ button {
   margin-top: 15px;
   font-weight: 800;
 }
+
+/* Quick-commerce catalogue cards: compact, image-led, while retaining Aaroda's green palette. */
+.category-showcase { display:grid; grid-template-columns:repeat(7, minmax(92px,1fr)); gap:10px; margin:16px 0 20px; overflow-x:auto; padding:2px; }
+.category-card { min-height:102px; display:grid; justify-items:center; align-content:center; gap:3px; border:1px solid #e3dfd4; border-radius:15px; background:#fbfcf8; color:var(--ink); padding:10px 7px; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; white-space:nowrap; }
+.category-card:hover,.category-card.active { transform:translateY(-3px); border-color:var(--green); box-shadow:0 9px 20px #143d2814; background:#f1f8e8; }
+.category-card-icon { width:42px; height:42px; display:grid; place-items:center; border-radius:13px; background:#e2f0d8; font-size:22px; }
+.category-card b { font-size:12px; }.category-card small { color:#758077; font-size:10px; }
+.product-card { position:relative; overflow:hidden; transition:transform .18s ease, box-shadow .18s ease; }.product-card:hover { transform:translateY(-3px); box-shadow:0 12px 24px #173d2718; }.product-copy p { text-transform:uppercase; letter-spacing:.06em; }
+.delivery-hint { margin:5px 0 0; color:#69736d; font-size:11px; font-weight:700; }
+.cart-drawer footer b s { color:#87928b; font-size:12px; font-weight:700; margin-right:5px; }.cart-drawer footer b em { color:var(--green); font-style:normal; }
+.delivery-address-summary { display:flex; justify-content:space-between; align-items:center; gap:12px; margin:13px 0; padding:11px; border:1px solid #dde8d7; border-radius:11px; background:#f8fbf5; }.delivery-address-summary b,.delivery-address-summary small { display:block; }.delivery-address-summary small { margin-top:3px; color:#65706b; font-size:11px; max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }.delivery-address-summary button,.address-form-top button { border:0; background:transparent; color:var(--green); font-size:12px; font-weight:900; }
+.address-overlay { position:fixed; inset:0; z-index:110; display:grid; place-items:center; padding:18px; background:#10282099; backdrop-filter:blur(4px); }.address-modal { width:min(690px,100%); max-height:min(90vh,760px); overflow:auto; padding:24px; border-radius:20px; background:#fff; box-shadow:0 25px 70px #0005; }.address-modal header,.address-form-top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }.address-modal header h2 { margin:2px 0 18px; font:700 26px Georgia,serif; }.address-modal header>button { border:0; background:transparent; font-size:25px; color:#65706b; }.saved-addresses { display:grid; gap:8px; margin:0 0 18px; }.saved-addresses button { display:grid; gap:3px; text-align:left; padding:11px; border:1px solid #d9e3d6; border-radius:11px; background:#fff; color:var(--ink); }.saved-addresses button.selected { border-color:var(--green); background:#f1f8e8; }.saved-addresses small { color:#65706b; }.address-form { display:grid; gap:14px; }.address-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }.address-grid label { display:grid; gap:5px; font-size:12px; font-weight:800; color:#35453d; }.address-grid input { min-height:40px; border:1px solid #d9e0d9; border-radius:9px; padding:0 10px; color:var(--ink); font-size:14px; }
+@media(max-width:700px){.category-showcase{display:flex;gap:8px;padding-bottom:3px}.category-card{min-width:92px;min-height:92px}.address-modal{padding:18px;border-radius:18px}.address-grid{grid-template-columns:1fr}.delivery-address-summary small{max-width:190px}}
+.default-address-option { display:flex; align-items:center; gap:8px; color:#35453d; font-size:13px; font-weight:800; cursor:pointer; }.default-address-option input { width:16px; height:16px; accent-color:var(--green); }
 
 .orders-page { max-width: 920px; }
 .orders-heading { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; margin-bottom:22px; }

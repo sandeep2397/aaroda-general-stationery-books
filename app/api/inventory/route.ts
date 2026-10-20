@@ -7,9 +7,10 @@ import {
 } from "@/lib/catalog";
 import { ensureCollections } from "@/lib/mongo-schema";
 import { applyRateLimit } from "@/lib/rate-limiter";
-import { ObjectId } from "mongodb";
+import { Document, ObjectId } from "mongodb";
 import { getFirebaseUser } from "@/lib/firebase-server";
 import { isAdminEmail } from "@/lib/admin";
+import { CATEGORY_TYPES } from "@/lib/mongo-schema";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const category = searchParams.get("category");
+  const categoryType = searchParams.get("categoryType") || category;
   const search = searchParams.get("search")?.trim().toLowerCase();
   const isAdmin = searchParams.get("admin") === "true";
   const includeInactive = searchParams.get("includeInactive") === "true" || isAdmin;
@@ -38,12 +40,12 @@ export async function GET(request: Request) {
       if (!includeInactive) {
         items = items.filter((item) => item.active && item.stock > 0);
       }
-      if (category && category !== "All") {
-        items = items.filter((item) => item.category.toLowerCase() === category.toLowerCase());
+      if (categoryType && categoryType !== "All") {
+        items = items.filter((item) => (item.categoryType || item.category).toLowerCase() === categoryType.toLowerCase());
       }
       if (search) {
         items = items.filter((item) =>
-          `${item.name} ${item.description} ${item.sku} ${item.category} ${item.hsn || ""}`.toLowerCase().includes(search)
+          `${item.name} ${item.description} ${item.sku} ${item.category} ${item.categoryType || ""} ${item.hsn || ""}`.toLowerCase().includes(search)
         );
       }
       const total = items.length;
@@ -93,8 +95,8 @@ export async function GET(request: Request) {
       filter.active = true;
       filter.stock = { $gt: 0 };
     }
-    if (category && category !== "All") {
-      filter.category = { $regex: `^${category}$`, $options: "i" };
+    if (categoryType && categoryType !== "All") {
+      filter.categoryType = { $regex: `^${categoryType}$`, $options: "i" };
     }
     if (search) {
       filter.$or = [
@@ -102,13 +104,24 @@ export async function GET(request: Request) {
         { description: { $regex: search, $options: "i" } },
         { sku: { $regex: search, $options: "i" } },
         { category: { $regex: search, $options: "i" } },
+        { categoryType: { $regex: search, $options: "i" } },
         { hsn: { $regex: search, $options: "i" } },
         { invoiceNo: { $regex: search, $options: "i" } },
       ];
     }
 
-    const total = await collection.countDocuments(filter);
-    const items = await collection.find(filter).sort({ category: 1, name: 1 }).skip((page - 1) * limit).limit(limit).toArray();
+    let items: Document[] = [];
+    let total = 0;
+    if (search) {
+      try {
+        const atlasSearchIndex = process.env.MONGODB_ATLAS_SEARCH_INDEX || "inventory_search";
+        const searchFilter = { ...filter }; delete searchFilter.$or;
+        const pipeline = [{ $search: { index: atlasSearchIndex, text: { query: search, path: ["name", "description", "sku", "categoryType", "category"] } } }, { $match: searchFilter }, { $sort: { name: 1 } }, { $skip: (page - 1) * limit }, { $limit: limit }];
+        items = await collection.aggregate(pipeline).toArray();
+        total = (await collection.aggregate([{ $search: { index: atlasSearchIndex, text: { query: search, path: ["name", "description", "sku", "categoryType", "category"] } } }, { $match: searchFilter }, { $count: "total" }]).toArray())[0]?.total || 0;
+      } catch { /* Atlas Search is optional; indexed regex/text fallback remains available. */ }
+    }
+    if (!items.length && total === 0) { total = await collection.countDocuments(filter); items = await collection.find(filter).sort({ categoryType: 1, name: 1 }).skip((page - 1) * limit).limit(limit).toArray(); }
     return Response.json({
       items: items.map(({ _id, ...item }) => ({ id: _id.toString(), ...item, version: item.version || 1 })),
       source: "mongodb_cluster",
@@ -123,12 +136,12 @@ export async function GET(request: Request) {
     if (!includeInactive) {
       items = items.filter((item) => item.active && item.stock > 0);
     }
-    if (category && category !== "All") {
-      items = items.filter((item) => item.category.toLowerCase() === category.toLowerCase());
+    if (categoryType && categoryType !== "All") {
+      items = items.filter((item) => (item.categoryType || item.category).toLowerCase() === categoryType.toLowerCase());
     }
     if (search) {
       items = items.filter((item) =>
-        `${item.name} ${item.description} ${item.sku}`.toLowerCase().includes(search)
+        `${item.name} ${item.description} ${item.sku} ${item.categoryType || ""}`.toLowerCase().includes(search)
       );
     }
     const total = items.length;
@@ -155,6 +168,7 @@ export async function POST(request: Request) {
       sku,
       name,
       category,
+      categoryType,
       description,
       price,
       mrp,
@@ -185,12 +199,14 @@ export async function POST(request: Request) {
     const cleanSku = String(sku).trim().toUpperCase();
     const cleanName = String(name).trim();
     const cleanCategory = category ? String(category).trim() : "General";
+    const cleanCategoryType = String(categoryType || body.categoryType || "").trim();
+    if (!CATEGORY_TYPES.includes(cleanCategoryType as typeof CATEGORY_TYPES[number])) return Response.json({ error: "A valid category type is required." }, { status: 400 });
     const cleanPrice = Number(price);
     const cleanMrp = Number(mrp) || cleanPrice;
     const cleanStock = isNaN(Number(stock)) ? 0 : Number(stock);
     const cleanUnit = unit ? String(unit).trim() : "piece";
     const cleanIcon =
-      icon ? String(icon).trim() : cleanCategory === "Medicine" ? "💊" : cleanCategory === "Stationery" ? "✏️" : "📦";
+      icon ? String(icon).trim() : cleanCategoryType === "Stationery" ? "✏️" : cleanCategoryType === "Personal Care" ? "🧴" : "📦";
     const cleanImageUrls = Array.isArray(imageUrls) ? imageUrls.filter((url): url is string => typeof url === "string" && Boolean(url.trim())).map((url) => url.trim()) : imageUrl ? [String(imageUrl).trim()] : [];
     const cleanActive = active !== false;
     const cleanDescription = description ? String(description).trim() : "";
@@ -201,6 +217,7 @@ export async function POST(request: Request) {
         sku: cleanSku,
         name: cleanName,
         category: cleanCategory,
+        categoryType: cleanCategoryType as "Stationery" | "Personal Care" | "Kids" | "Electronics" | "Beauty" | "Decor",
         description: cleanDescription,
         price: cleanPrice,
         mrp: cleanMrp,
@@ -247,6 +264,7 @@ export async function POST(request: Request) {
         sku: cleanSku,
         name: cleanName,
         category: cleanCategory,
+        categoryType: cleanCategoryType,
         description: cleanDescription,
         price: cleanPrice,
         mrp: cleanMrp,
@@ -303,9 +321,10 @@ export async function PATCH(request: Request) {
     }
 
     const updateFields: Record<string, unknown> = { updatedAt: new Date() };
-    const stringFields = ["sku", "name", "category", "description", "unit", "icon", "hsn", "invoiceNo"] as const;
+    const stringFields = ["sku", "name", "category", "categoryType", "description", "unit", "icon", "hsn", "invoiceNo"] as const;
     const numberFields = ["stock", "price", "mrp", "gstPercent", "netRate", "baseRate"] as const;
     for (const field of stringFields) if (body[field] !== undefined) updateFields[field] = String(body[field]).trim();
+    if (updateFields.categoryType && !CATEGORY_TYPES.includes(updateFields.categoryType as typeof CATEGORY_TYPES[number])) return Response.json({ error: "A valid category type is required." }, { status: 400 });
     for (const field of numberFields) if (body[field] !== undefined && !Number.isNaN(Number(body[field]))) updateFields[field] = Number(body[field]);
     if (body.active !== undefined) updateFields.active = Boolean(body.active);
     if (Array.isArray(body.imageUrls)) updateFields.imageUrls = body.imageUrls.filter((url: unknown): url is string => typeof url === "string" && Boolean(url.trim())).map((url: string) => url.trim());

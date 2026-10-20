@@ -13,6 +13,7 @@ export type AdminProduct = {
   sku: string;
   name: string;
   category: string;
+  categoryType?: string;
   description: string;
   price: number;
   mrp: number;
@@ -62,7 +63,7 @@ type AdminPayment = { id: string; orderId: string; orderNumber?: string; userId:
 type ActivityStats = { inventoryCount: number; orderCount: number; paymentCount: number; successfulPayments: number; successfulRevenue: number; awaitingPayment: number; expiredOrders: number };
 
 const EMOJI_OPTIONS = ["💊", "🧴", "🩹", "🍊", "📓", "🖊️", "✏️", "🗒️", "📐", "🧪", "🧼", "📦", "🩺", "💉", "🧻", "🍵"];
-const CATEGORY_OPTIONS = ["Stationery", "Personal Care"];
+const CATEGORY_OPTIONS = ["Stationery", "Personal Care", "Kids", "Electronics", "Beauty", "Decor"];
 
 export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<"orders" | "catalog" | "add" | "excel" | "health">("orders");
@@ -81,7 +82,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [payments, setPayments] = useState<AdminPayment[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
-  const [orderAction, setOrderAction] = useState<string | null>(null);
+  const [orderActions, setOrderActions] = useState<Set<string>>(new Set());
 
   const adminHeaders = async (json = false) => {
     const idToken = await firebaseAuth?.currentUser?.getIdToken();
@@ -97,6 +98,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Stationery");
+  const [categoryType, setCategoryType] = useState("Stationery");
   const [customCategory, setCustomCategory] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState<number | "">("");
@@ -176,7 +178,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
   }, []);
 
   const handleOrderAction = async (order: AdminOrder, action: "accept" | "decline") => {
-    setOrderAction(`${order.id}:${action}`);
+    setOrderActions((current) => new Set(current).add(order.id));
     try {
       const response = await fetch(`/api/admin/orders/${order.id}`, { method: "PATCH", headers: await adminHeaders(true), body: JSON.stringify({ action }) });
       const data = await response.json();
@@ -184,12 +186,12 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
       toast.success(action === "accept" ? `Order ${order.orderNumber} accepted.` : `Order ${order.orderNumber} declined.`);
       await fetchOrderActivity(true);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to update order"); }
-    finally { setOrderAction(null); }
+    finally { setOrderActions((current) => { const next = new Set(current); next.delete(order.id); return next; }); }
   };
 
   // Auto generate SKU based on category
   const generateSku = (cat: string) => {
-    const prefix = cat.toLowerCase().includes("med") ? "MED" : cat.toLowerCase().includes("stat") ? "STA" : "ITEM";
+    const prefix = ({ "Stationery": "STA", "Personal Care": "PER", Kids: "KID", Electronics: "ELE", Beauty: "BEA", Decor: "DEC" } as Record<string, string>)[cat] || "ITEM";
     const rand = Math.floor(100 + Math.random() * 900);
     setSku(`${prefix}-${rand}`);
   };
@@ -240,6 +242,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
           sku: sku.trim(),
           name: name.trim(),
           category: effectiveCategory,
+          categoryType,
           description: description.trim(),
           price: Number(price),
           mrp: mrp === "" ? Number(price) : Number(mrp),
@@ -552,7 +555,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
 
   // Filtered products list
   const filteredProducts = products.filter((p) => {
-    const matchesCat = selectedCategory === "All" || p.category.toLowerCase() === selectedCategory.toLowerCase();
+    const matchesCat = selectedCategory === "All" || p.categoryType?.toLowerCase() === selectedCategory.toLowerCase();
     const matchesSearch =
       !search ||
       `${p.name} ${p.sku} ${p.description} ${p.category}`.toLowerCase().includes(search.toLowerCase());
@@ -687,6 +690,10 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
                 <option value="All">All Categories</option>
                 <option value="Stationery">Stationery</option>
                 <option value="Personal Care">Personal Care</option>
+                <option value="Kids">Kids</option>
+                <option value="Electronics">Electronics</option>
+                <option value="Beauty">Beauty</option>
+                <option value="Decor">Decor</option>
               </select>
               <button className="btn-secondary text-xs" onClick={fetchInventory}>
                 🔄 Refresh
@@ -835,8 +842,8 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
           </div>
           <h3 className="admin-subheading">Orders ({orders.length})</h3>
           <div className="table-responsive">
-            <table className="admin-table"><thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Received</th><th>Decision</th></tr></thead><tbody>
-              {activityLoading ? <tr><td colSpan={8}><div className="admin-table-skeleton">{Array.from({ length: 5 }, (_, index) => <span className="skeleton" key={index} />)}</div></td></tr> : orders.length ? orders.map(order => <tr key={order.id}><td><b>{order.orderNumber}</b><small className="block text-gray-500">{order.paymentMethod || "razorpay"}</small></td><td>{order.customer?.name || "Guest"}<small className="block text-gray-500">{order.customer?.email || order.userId}</small></td><td><div>{order.summary?.unitCount || order.summary?.itemCount || 0} unit(s)</div><small className="block text-gray-500">{order.lines?.map((line) => `${line.name || line.sku || "Item"} ×${line.quantity || 0}`).join(", ") || "—"}</small></td><td>₹{order.total}</td><td><span className="badge badge-blue">{order.paymentStatus}</span></td><td><span className={`badge ${order.fulfillmentStatus === "accepted" ? "badge-green" : order.orderStatus === "expired" || order.orderStatus === "declined" ? "badge-gray" : "badge-blue"}`}>{order.fulfillmentStatus || order.orderStatus}</span></td><td>{new Date(order.createdAt).toLocaleString()}</td><td className="order-decision-actions">{order.orderStatus === "placed" ? <><button className="btn-primary text-xs" disabled={orderAction !== null} onClick={() => handleOrderAction(order, "accept")}>{orderAction === `${order.id}:accept` ? "Accepting…" : "Accept"}</button><button className="btn-outline-danger" disabled={orderAction !== null} onClick={() => handleOrderAction(order, "decline")}>Decline</button></> : <span className="text-xs text-gray-500">{order.fulfillmentStatus || order.orderStatus}</span>}</td></tr>) : <tr><td colSpan={8} className="text-center py-8 text-gray-500">No orders have been received yet.</td></tr>}
+            <table className="admin-table received-orders-table"><thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Received</th><th aria-label="Order actions" /></tr></thead><tbody>
+              {activityLoading ? <tr><td colSpan={8}><div className="admin-table-skeleton">{Array.from({ length: 5 }, (_, index) => <span className="skeleton" key={index} />)}</div></td></tr> : orders.length ? orders.map(order => <tr key={order.id}><td><b>{order.orderNumber}</b><small className="block text-gray-500">{order.paymentMethod || "razorpay"}</small></td><td>{order.customer?.name || "Guest"}<small className="block text-gray-500">{order.customer?.email || order.userId}</small></td><td><div>{order.summary?.unitCount || order.summary?.itemCount || 0} unit(s)</div><small className="block text-gray-500">{order.lines?.map((line) => `${line.name || line.sku || "Item"} ×${line.quantity || 0}`).join(", ") || "—"}</small></td><td>₹{order.total}</td><td><span className="badge badge-blue">{order.paymentStatus}</span></td><td><span className={`badge ${order.fulfillmentStatus === "accepted" ? "badge-green" : order.orderStatus === "expired" || order.orderStatus === "declined" ? "badge-gray" : "badge-blue"}`}>{order.fulfillmentStatus || order.orderStatus}</span></td><td>{new Date(order.createdAt).toLocaleString()}</td><td className="order-decision-actions">{order.orderStatus === "placed" ? <><button className="btn-primary compact-order-action" aria-label={`Accept ${order.orderNumber}`} disabled={orderActions.has(order.id)} onClick={() => handleOrderAction(order, "accept")}>{orderActions.has(order.id) ? <span className="inline-button-loader" aria-label="Accepting" /> : "✓ Accept"}</button><button className="btn-outline-danger compact-order-action" aria-label={`Decline ${order.orderNumber}`} disabled={orderActions.has(order.id)} onClick={() => handleOrderAction(order, "decline")}>× Decline</button></> : <span className="text-xs text-gray-500">{order.fulfillmentStatus || order.orderStatus}</span>}</td></tr>) : <tr><td colSpan={8} className="text-center py-8 text-gray-500">No orders have been received yet.</td></tr>}
             </tbody></table>
           </div>
           <h3 className="admin-subheading">Payments ({payments.length})</h3>
@@ -867,7 +874,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
                   <button
                     type="button"
                     className="text-xs text-emerald-700 hover:underline font-semibold"
-                    onClick={() => generateSku(category)}
+                    onClick={() => generateSku(categoryType)}
                   >
                     Auto Generate
                   </button>
@@ -920,6 +927,14 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
                     onChange={(e) => setCustomCategory(e.target.value)}
                   />
                 )}
+              </div>
+
+              <div className="form-group">
+                <label>Category Type *</label>
+                <select value={categoryType} onChange={(e) => setCategoryType(e.target.value)} required>
+                  {CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+                <small className="text-xs text-gray-500">Main storefront category used for customer browsing.</small>
               </div>
 
               {/* Description */}
@@ -1122,7 +1137,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
             <div className="dropzone-icon">📊</div>
             <h3>{excelFile ? excelFile.name : "Choose or drag & drop Excel Sheet"}</h3>
             <p>
-              Supports columns: <b>SKU, Name, Category, Description, Price, MRP, Stock, Unit, Icon, Image</b>
+              Supports columns: <b>SKU, Name, Category, Category Type (required), Description, Price, MRP, Stock, Unit, Icon, Image</b>
             </p>
             <button
               type="button"

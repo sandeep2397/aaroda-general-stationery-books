@@ -26,6 +26,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const now = new Date();
     if (body.action === "accept") {
       const lines = (order.lines || []) as OrderLine[];
+      if (order.stockReserved) {
+        await Promise.all(lines.map((line) => db.collection("inventory").updateOne({ _id: line.inventoryId || line.productId }, { $inc: { reservedStock: -Number(line.quantity || 0) }, $set: { updatedAt: now } })));
+      }
       if (!order.inventoryFinalized) {
         for (const line of lines) {
           const inventoryId = line.inventoryId || line.productId;
@@ -35,9 +38,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
           if (result.modifiedCount !== 1) return Response.json({ error: `Insufficient stock for ${line.name || line.sku || "an item"}.` }, { status: 409 });
         }
       }
-      await orders.updateOne({ _id: orderId }, { $set: { orderStatus: "accepted", fulfillmentStatus: "accepted", inventoryFinalized: true, acceptedAt: now, updatedAt: now } });
+      await orders.updateOne({ _id: orderId }, { $set: { orderStatus: "accepted", fulfillmentStatus: "accepted", inventoryFinalized: true, stockReserved: false, acceptedAt: now, updatedAt: now } });
     } else {
-      await orders.updateOne({ _id: orderId }, { $set: { orderStatus: "declined", fulfillmentStatus: "declined", declineReason: body.reason?.trim() || "Declined by administrator", declinedAt: now, updatedAt: now } });
+      if (order.stockReserved) await Promise.all(((order.lines || []) as OrderLine[]).map((line) => db.collection("inventory").updateOne({ _id: line.inventoryId || line.productId }, { $inc: { stock: Number(line.quantity || 0), reservedStock: -Number(line.quantity || 0), version: 1 }, $set: { updatedAt: now } })));
+      await orders.updateOne({ _id: orderId }, { $set: { orderStatus: "declined", fulfillmentStatus: "declined", stockReserved: false, declineReason: body.reason?.trim() || "Declined by administrator", declinedAt: now, updatedAt: now } });
     }
     const updated = await orders.findOne({ _id: orderId });
     return Response.json({ success: true, order: updated ? { id: updated._id.toString(), ...updated } : null });

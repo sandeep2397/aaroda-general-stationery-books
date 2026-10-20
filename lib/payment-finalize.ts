@@ -25,6 +25,12 @@ export async function finalizePaidOrder(db: Db, razorpayOrderId: string, payment
     } },
     { upsert: true }
   );
-  await Promise.all((order.lines || []).map((line: { inventoryId: ObjectId; quantity: number }) => db.collection("inventory").updateOne({ _id: line.inventoryId, stock: { $gte: line.quantity } }, { $inc: { stock: -line.quantity }, $set: { updatedAt: new Date() } })));
+  // The checkout saga reserved stock before taking payment. Legacy orders are decremented here;
+  // reserved orders only convert their reservation into a completed allocation.
+  if (order.stockReserved) {
+    await Promise.all((order.lines || []).map((line: { inventoryId: ObjectId; quantity: number }) => db.collection("inventory").updateOne({ _id: line.inventoryId }, { $inc: { reservedStock: -line.quantity }, $set: { updatedAt: new Date() } })));
+  } else {
+    await Promise.all((order.lines || []).map((line: { inventoryId: ObjectId; quantity: number }) => db.collection("inventory").updateOne({ _id: line.inventoryId, stock: { $gte: line.quantity } }, { $inc: { stock: -line.quantity }, $set: { updatedAt: new Date() } })));
+  }
   return { finalized: true, order };
 }
