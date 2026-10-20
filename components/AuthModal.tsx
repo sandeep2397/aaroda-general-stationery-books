@@ -5,13 +5,13 @@ import { ConfirmationResult, createUserWithEmailAndPassword, RecaptchaVerifier, 
 import { firebaseAuth, firebaseEnabled, googleProvider } from "@/lib/firebase";
 
 const emailPattern = /^\S+@\S+\.\S+$/;
-const usernamePattern = /^[a-zA-Z0-9._-]{3,16}$/;
+const usernamePattern = /^[a-zA-Z0-9._ -]{3,16}$/;
 type SignInMethod = "email" | "phone";
 const PHONE_OTP_ENABLED = false;
 
 export default function AuthModal({ onClose }: { onClose: () => void }) {
   const [register, setRegister] = useState(false), [method, setMethod] = useState<SignInMethod>("email");
-  const [username, setUsername] = useState(""), [email, setEmail] = useState(""), [password, setPassword] = useState("");
+  const [username, setUsername] = useState(""), [email, setEmail] = useState(""), [password, setPassword] = useState(""), [showPassword, setShowPassword] = useState(false);
   const [firstName, setFirstName] = useState(""), [lastName, setLastName] = useState(""), [phone, setPhone] = useState(""), [otp, setOtp] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
@@ -54,9 +54,10 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
     event.preventDefault();
     if (!firebaseAuth) return setError("Firebase is not configured.");
     const normalizedEmail = email.trim().toLowerCase(), normalizedName = username.trim();
-    if (register && !usernamePattern.test(normalizedName)) return setError("Username must be 3–16 characters and use only letters, numbers, dots, hyphens, or underscores.");
+    if (register && !usernamePattern.test(normalizedName)) return setError("Username must be 3–16 characters and may use letters, numbers, spaces, dots, hyphens, or underscores.");
     if (!emailPattern.test(normalizedEmail)) return setError("Enter a valid email address.");
-    if (password.length < 8 || password.length > 16 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[^A-Za-z0-9]/.test(password)) return setError("Password must be 8–16 characters with uppercase, lowercase, a number, and a symbol.");
+    if (!password) return setError("Enter your password.");
+    if (register && (password.length < 8 || password.length > 16 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[^A-Za-z0-9]/.test(password))) return setError("Password must be 8–16 characters with uppercase, lowercase, a number, and a symbol.");
     setBusy(true); setError("");
     try {
       if (register) { const credential = await createUserWithEmailAndPassword(firebaseAuth, normalizedEmail, password); await updateProfile(credential.user, { displayName: normalizedName }); }
@@ -80,7 +81,7 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
     </form>) : <><div className="auth-divider"><span>or use email</span></div><form onSubmit={submit} noValidate>
       {register && <><label className="auth-label" htmlFor="auth-username">Username</label><input id="auth-username" className="auth-input" type="text" autoComplete="username" minLength={3} maxLength={16} value={username} onChange={(event) => setUsername(event.target.value)} placeholder="3–16 characters" /></>}
       <label className="auth-label" htmlFor="auth-email">Email address</label><input id="auth-email" className="auth-input" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
-      <label className="auth-label" htmlFor="auth-password">Password</label><input id="auth-password" className="auth-input" type="password" autoComplete={register ? "new-password" : "current-password"} minLength={8} maxLength={16} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={register ? "8–16 characters" : "Your password"} />
+      <label className="auth-label" htmlFor="auth-password">Password</label><div className="auth-password-field"><input id="auth-password" className="auth-input" type={showPassword ? "text" : "password"} autoComplete={register ? "new-password" : "current-password"} minLength={8} maxLength={16} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={register ? "8–16 characters" : "Your password"} /><button type="button" className="auth-password-toggle" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} title={showPassword ? "Hide password" : "Show password"}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.8" /></svg></button></div>
       {register && <small className="auth-password-help">Use uppercase, lowercase, a number, and a symbol.</small>}<button className="auth-primary" disabled={busy || !firebaseEnabled}>{busy ? "Please wait…" : register ? "Create account" : "Sign in"}</button>
     </form><button className="auth-link" onClick={() => { setRegister((current) => !current); setError(""); }}>{register ? "Already have an account? Sign in" : "New here? Create an account"}</button></>}
     {error && <div className="auth-error" role="alert">{error}</div>}<div id="firebase-phone-recaptcha" /><small>Accounts and sessions are securely managed by Firebase Authentication.</small>
