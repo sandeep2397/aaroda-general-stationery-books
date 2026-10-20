@@ -2,17 +2,17 @@ import { getDb } from "@/lib/mongodb";
 import { ensureCollections } from "@/lib/mongo-schema";
 import { expireAwaitingOrders } from "@/lib/order-maintenance";
 import { getFirebaseUser } from "@/lib/firebase-server";
-import { isAdminEmail } from "@/lib/admin";
+import { hasPermission } from "@/lib/user-roles";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const user = await getFirebaseUser(request);
   if (!user) return Response.json({ error: "Please sign in to view the admin dashboard." }, { status: 401 });
-  if (!isAdminEmail(user.email)) return Response.json({ error: "You do not have administrator access." }, { status: 403 });
   try {
     const db = await getDb();
     await ensureCollections(db);
+    if (!await hasPermission(db, user, "orders:read")) return Response.json({ error: "You do not have administrator access." }, { status: 403 });
     await expireAwaitingOrders(db);
     const [inventoryCount, orderCount, paymentCount, successfulPayments, awaitingPayment, expiredOrders, orders, payments] = await Promise.all([
       db.collection("inventory").countDocuments(),

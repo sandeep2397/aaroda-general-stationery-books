@@ -1,4 +1,5 @@
 import type { Db } from "mongodb";
+import { seedLegacyAdminRoles } from "@/lib/user-roles";
 
 export const inventoryExcelColumns = [
   "sr",
@@ -110,6 +111,18 @@ const userValidator = {
   },
 };
 
+const userRoleValidator = {
+  $jsonSchema: {
+    bsonType: "object",
+    required: ["role", "permissions", "active", "createdAt", "updatedAt"],
+    properties: {
+      userId: { bsonType: "string" }, email: { bsonType: "string" }, phoneNumber: { bsonType: "string" }, role: { enum: ["Admin", "Customer"] },
+      permissions: { bsonType: "array", items: { bsonType: "string" } }, active: { bsonType: "bool" },
+      createdAt: { bsonType: "date" }, updatedAt: { bsonType: "date" }, lastSeenAt: { bsonType: "date" },
+    },
+  },
+};
+
 const paymentValidator = {
   $jsonSchema: {
     bsonType: "object",
@@ -157,6 +170,9 @@ export async function ensureCollections(db: Db) {
     else await db.command({ collMod: "addresses", validator: addressValidator, validationLevel: "moderate" }).catch(() => undefined);
     if (!existing.has("users")) await db.createCollection("users", { validator: userValidator }).catch(() => undefined);
     else await db.command({ collMod: "users", validator: userValidator, validationLevel: "moderate" }).catch(() => undefined);
+    if (!existing.has("userRoles")) await db.createCollection("userRoles", { validator: userRoleValidator }).catch(() => undefined);
+    else await db.command({ collMod: "userRoles", validator: userRoleValidator, validationLevel: "moderate" }).catch(() => undefined);
+    await seedLegacyAdminRoles(db);
     await db.collection("orders").updateMany({ paymentStatus: "pending_cod" }, { $set: { paymentStatus: "cash_on_delivery", updatedAt: new Date() } }).catch(() => undefined);
     await db.collection("payments").updateMany({ paymentStatus: "pending_cod" }, { $set: { paymentStatus: "cash_on_delivery", updatedAt: new Date() } }).catch(() => undefined);
     // Backfill legacy products once, mapping retired Medicine records into Personal Care.
@@ -174,6 +190,9 @@ export async function ensureCollections(db: Db) {
     await db.collection("payments").createIndex({ userId: 1, createdAt: -1 }).catch(() => undefined);
     await db.collection("addresses").createIndex({ userId: 1, isDefault: -1, updatedAt: -1 }).catch(() => undefined);
     await db.collection("users").createIndex({ userId: 1 }, { unique: true }).catch(() => undefined);
+    await db.collection("userRoles").createIndex({ userId: 1 }, { unique: true, sparse: true }).catch(() => undefined);
+    await db.collection("userRoles").dropIndex("email_1").catch(() => undefined);
+    await db.collection("userRoles").createIndex({ email: 1 }, { unique: true, sparse: true }).catch(() => undefined);
   } catch (err) {
     console.warn("Collection init warning:", err);
   }

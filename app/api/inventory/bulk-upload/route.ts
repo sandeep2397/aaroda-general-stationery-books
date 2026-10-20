@@ -4,7 +4,7 @@ import { ensureCollections } from "@/lib/mongo-schema";
 import { applyRateLimit } from "@/lib/rate-limiter";
 import * as XLSX from "xlsx";
 import { getFirebaseUser } from "@/lib/firebase-server";
-import { isAdminEmail } from "@/lib/admin";
+import { hasPermission } from "@/lib/user-roles";
 import { CATEGORY_TYPES } from "@/lib/mongo-schema";
 
 export const dynamic = "force-dynamic";
@@ -357,11 +357,14 @@ export function extractRowsFromWorkbook(buffer: ArrayBuffer | Buffer): {
 
 export async function POST(request: Request) {
   const user = await getFirebaseUser(request);
-  if (!user || !isAdminEmail(user.email)) return Response.json({ error: "Administrator access is required." }, { status: 403 });
+  if (!user) return Response.json({ error: "Administrator access is required." }, { status: 403 });
   const rateLimitResponse = applyRateLimit(request, "bulk");
   if (rateLimitResponse) return rateLimitResponse;
 
   try {
+    const authorizationDb = await getDb();
+    await ensureCollections(authorizationDb);
+    if (!await hasPermission(authorizationDb, user, "inventory:write")) return Response.json({ error: "Administrator access is required." }, { status: 403 });
     let rows: ParsedItem[] = [];
     let invoiceMetadata: Record<string, unknown> | undefined;
     let warnings: string[] = [];

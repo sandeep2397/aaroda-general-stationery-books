@@ -9,14 +9,17 @@ import { ensureCollections } from "@/lib/mongo-schema";
 import { applyRateLimit } from "@/lib/rate-limiter";
 import { Document, ObjectId } from "mongodb";
 import { getFirebaseUser } from "@/lib/firebase-server";
-import { isAdminEmail } from "@/lib/admin";
+import { hasPermission } from "@/lib/user-roles";
 import { CATEGORY_TYPES } from "@/lib/mongo-schema";
 
 export const dynamic = "force-dynamic";
 
 async function requireAdmin(request: Request) {
   const user = await getFirebaseUser(request);
-  return Boolean(user && isAdminEmail(user.email));
+  if (!user || !process.env.MONGODB_URI) return false;
+  const db = await getDb();
+  await ensureCollections(db);
+  return hasPermission(db, user, "inventory:write");
 }
 
 export async function GET(request: Request) {

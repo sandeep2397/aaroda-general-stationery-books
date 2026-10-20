@@ -1,14 +1,14 @@
 import { ObjectId } from "mongodb";
 import { getDb } from "@/lib/mongodb";
 import { getFirebaseUser } from "@/lib/firebase-server";
-import { isAdminEmail } from "@/lib/admin";
+import { ensureCollections } from "@/lib/mongo-schema";
+import { hasPermission } from "@/lib/user-roles";
 
 type OrderLine = { inventoryId?: ObjectId; productId?: ObjectId; quantity?: number; name?: string; sku?: string };
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const user = await getFirebaseUser(request);
   if (!user) return Response.json({ error: "Please sign in to manage orders." }, { status: 401 });
-  if (!isAdminEmail(user.email)) return Response.json({ error: "Administrator access is required." }, { status: 403 });
   const { id } = await context.params;
   if (!ObjectId.isValid(id)) return Response.json({ error: "Invalid order id." }, { status: 400 });
   const body = await request.json().catch(() => ({})) as { action?: "accept" | "decline"; reason?: string };
@@ -16,6 +16,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   try {
     const db = await getDb();
+    await ensureCollections(db);
+    if (!await hasPermission(db, user, "orders:fulfill")) return Response.json({ error: "Administrator access is required." }, { status: 403 });
     const orders = db.collection("orders");
     const orderId = new ObjectId(id);
     const order = await orders.findOne({ _id: orderId });

@@ -1,4 +1,4 @@
-export type FirebaseUser = { userId: string; email?: string };
+export type FirebaseUser = { userId: string; email?: string; phoneNumber?: string };
 
 export async function getFirebaseUser(request: Request): Promise<FirebaseUser | null> {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
@@ -11,9 +11,9 @@ export async function getFirebaseUser(request: Request): Promise<FirebaseUser | 
     cache: "no-store",
   });
   if (!response.ok) return null;
-  const payload = await response.json() as { users?: Array<{ localId?: string; email?: string }> };
+  const payload = await response.json() as { users?: Array<{ localId?: string; email?: string; phoneNumber?: string }> };
   const user = payload.users?.[0];
-  return user?.localId ? { userId: user.localId, email: user.email } : null;
+  return user?.localId ? { userId: user.localId, email: user.email, phoneNumber: user.phoneNumber } : null;
 }
 
 export async function getFirebaseUserId(request: Request) {

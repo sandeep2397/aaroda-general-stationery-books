@@ -156,6 +156,10 @@ export default function Home() {
   };
   useEffect(() => { if (user) loadAddresses().catch(() => undefined); else { setAddresses([]); setSelectedAddressId(""); } }, [user]);
   useEffect(() => {
+    if (!user) return;
+    user.getIdToken().then((token) => fetch("/api/user-role", { headers: { Authorization: `Bearer ${token}` } })).catch(() => undefined);
+  }, [user]);
+  useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     fetch(

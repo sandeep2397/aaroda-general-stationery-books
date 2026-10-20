@@ -237,6 +237,41 @@
   background: #e5e9e5;
   flex: 1;
 }
+.auth-methods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 14px 0 4px;
+  padding: 4px;
+  border-radius: 11px;
+  background: #f1f4f0;
+}
+.auth-methods button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #65706b;
+  font-size: 12px;
+  font-weight: 800;
+}
+.auth-methods button.active {
+  background: #fff;
+  color: var(--green);
+  box-shadow: 0 1px 4px #0001;
+}
+.auth-name-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.auth-name-grid .auth-input { margin-bottom: 6px; }
+.otp-sent {
+  margin: 8px 0 14px !important;
+  padding: 9px;
+  border-radius: 9px;
+  background: #eef7ed;
+  color: #286147 !important;
+  font-size: 12px !important;
+  text-align: left;
+}
+.auth-modal .auth-otp-input { letter-spacing: .22em !important; font-weight: 800; text-align: center; }
 .auth-label {
   display: block;
   text-align: left;

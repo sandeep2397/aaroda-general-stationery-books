@@ -1,6 +1,8 @@
 import { put } from "@vercel/blob";
-import { isAdminEmail } from "@/lib/admin";
 import { getFirebaseUser } from "@/lib/firebase-server";
+import { getDb } from "@/lib/mongodb";
+import { ensureCollections } from "@/lib/mongo-schema";
+import { hasPermission } from "@/lib/user-roles";
 
 export const runtime = "nodejs";
 
@@ -12,8 +14,10 @@ const safePathSegment = (value: string) =>
 export async function POST(request: Request) {
   const user = await getFirebaseUser(request);
   if (!user) return Response.json({ error: "Please sign in before uploading images." }, { status: 401 });
-  if (!isAdminEmail(user.email)) return Response.json({ error: "Only administrators can upload catalog images." }, { status: 403 });
   try {
+    const db = await getDb();
+    await ensureCollections(db);
+    if (!await hasPermission(db, user, "inventory:write")) return Response.json({ error: "Only administrators can upload catalog images." }, { status: 403 });
     const form = await request.formData();
     const file = form.get("file");
     const productId = String(form.get("productId") || "inventory");
