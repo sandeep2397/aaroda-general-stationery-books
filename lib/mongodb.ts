@@ -1,9 +1,11 @@
 import { MongoClient, Db } from "mongodb";
 
 const uri = process.env.MONGODB_URI;
+const readUris = (process.env.MONGODB_READ_URIS || "").split(",").map((value) => value.trim()).filter(Boolean);
 const dbName = process.env.MONGODB_DB || "nammacare";
 const RETRY_DELAYS_MS = [0, 350, 900];
 const KEEP_ALIVE_INTERVAL_MS = 15_000;
+const HEALTH_CHECK_INTERVAL_MS = 30_000;
 
 interface MongoState {
   client?: MongoClient;
@@ -15,6 +17,9 @@ interface MongoState {
   pingSuccessCount: number;
   pingErrorCount: number;
   lastError?: string;
+  readClients?: MongoClient[];
+  readConnecting?: Promise<MongoClient[]>;
+  readIndex?: number;
 }
 
 declare global {
@@ -84,8 +89,10 @@ async function connectFresh(): Promise<MongoClient> {
   
   // High-reliability connection pooling config
   const client = new MongoClient(uri, {
-    minPoolSize: 5, // Keep at least 5 connections warmed up in the pool
-    maxPoolSize: 20, // Allow up to 20 concurrent connections
+    // Serverless functions should open only the connection they need on cold start.
+    minPoolSize: 0,
+    maxPoolSize: 10,
+    maxConnecting: 2,
     maxIdleTimeMS: 60_000, // Close idle connections after 60s
     waitQueueTimeoutMS: 10_000,
     serverSelectionTimeoutMS: 5_000,
@@ -94,17 +101,18 @@ async function connectFresh(): Promise<MongoClient> {
     heartbeatFrequencyMS: 10_000, // Background driver heartbeat every 10s
     retryReads: true,
     retryWrites: true,
+    // A write is acknowledged only after the replica set majority has it.
+    writeConcern: { w: "majority", j: true },
+    compressors: "zstd,snappy",
   });
 
   await client.connect();
-  const start = Date.now();
-  await client.db(dbName).command({ ping: 1 });
   
   const state = getState();
   state.client = client;
   state.connectedSince = new Date();
-  state.lastPingAt = new Date();
-  state.lastPingLatencyMs = Date.now() - start;
+  state.lastPingAt = undefined;
+  state.lastPingLatencyMs = undefined;
   state.pingSuccessCount += 1;
   state.lastError = undefined;
 
@@ -112,9 +120,28 @@ async function connectFresh(): Promise<MongoClient> {
   return client;
 }
 
+async function connectReadClients(): Promise<MongoClient[]> {
+  const uris = readUris.length ? readUris : (uri ? [uri] : []);
+  if (!uris.length) throw new Error("MONGODB_URI is not configured");
+  const clients = await Promise.all(uris.map(async (readUri) => {
+    const client = new MongoClient(readUri, {
+      minPoolSize: 0, maxPoolSize: 10, maxConnecting: 2, maxIdleTimeMS: 60_000,
+      waitQueueTimeoutMS: 10_000, serverSelectionTimeoutMS: 5_000, connectTimeoutMS: 5_000,
+      retryReads: true, retryWrites: false, readPreference: "secondaryPreferred", compressors: "zstd,snappy",
+      readConcern: "majority",
+    });
+    await client.connect();
+    return client;
+  }));
+  return clients;
+}
+
 async function healthyCachedClient(): Promise<MongoClient | undefined> {
   const state = getState();
   if (!state.client) return undefined;
+  if (state.lastPingAt && Date.now() - state.lastPingAt.getTime() < HEALTH_CHECK_INTERVAL_MS) {
+    return state.client;
+  }
   try {
     const start = Date.now();
     await state.client.db(dbName).command({ ping: 1 });
@@ -155,6 +182,35 @@ export async function getDb(): Promise<Db> {
   throw new Error(formattedError);
 }
 
+/** Read path with optional replica URIs. Set MONGODB_READ_URIS to a comma-separated
+ * list of Atlas replica/region URIs; without it, reads safely fall back to the
+ * pooled writer client. Writes always use getDb(). */
+export async function getReadDb(): Promise<Db> {
+  const state = getState();
+  if (!readUris.length) return getDb();
+  if (!state.readClients) {
+    state.readConnecting ??= connectReadClients().then((clients) => {
+      state.readClients = clients;
+      state.readConnecting = undefined;
+      state.readIndex = 0;
+      return clients;
+    }).catch((error) => {
+      state.readConnecting = undefined;
+      throw error;
+    });
+  }
+  const clients = state.readClients || await state.readConnecting;
+  if (!clients?.length) return getDb();
+  const index = state.readIndex || 0;
+  state.readIndex = (index + 1) % clients.length;
+  return clients[index].db(dbName);
+}
+
+/** Use the primary for read-after-write flows where stale replica data is not acceptable. */
+export async function getConsistentReadDb(): Promise<Db> {
+  return getDb();
+}
+
 export async function mongoHealth() {
   const startedAt = Date.now();
   const state = getState();
@@ -182,8 +238,8 @@ export async function mongoHealth() {
       database: db.databaseName,
       latencyMs: latency,
       pool: {
-        minPoolSize: 5,
-        maxPoolSize: 20,
+        minPoolSize: 0,
+        maxPoolSize: 10,
         active: true,
         connectedSince: state.connectedSince?.toISOString(),
       },
@@ -198,7 +254,7 @@ export async function mongoHealth() {
       status: "unavailable" as const,
       database: dbName,
       latencyMs: Date.now() - startedAt,
-      pool: { minPoolSize: 5, maxPoolSize: 20, active: false },
+      pool: { minPoolSize: 0, maxPoolSize: 10, active: false },
       reason: error instanceof Error ? sanitizeErrorMessage(error.message) : "Connection failed",
       lastPingAt: state.lastPingAt?.toISOString(),
       stats: {

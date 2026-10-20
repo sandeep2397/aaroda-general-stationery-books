@@ -642,7 +642,7 @@ export default function AdminDashboard({ onSwitchToStore, onInventoryUpdated }: 
             </span>
           </span>
           <span className="stat-meta">
-            {health?.latencyMs !== undefined ? `${health.latencyMs}ms latency` : "Pooling active"} • Pool: min 5 / max 20
+            {health?.latencyMs !== undefined ? `${health.latencyMs}ms latency` : "Pooling active"} • Pool: min {health?.pool?.minPoolSize ?? 0} / max {health?.pool?.maxPoolSize ?? 10}
           </span>
         </div>
       </div>

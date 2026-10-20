@@ -1,8 +1,11 @@
 import { mongoHealth } from "@/lib/mongodb";
+import { applyRateLimit } from "@/lib/rate-limiter";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const limited = applyRateLimit(request, "health");
+  if (limited) return limited;
   const mongo = await mongoHealth();
   const isOk = mongo.status === "healthy" || mongo.status === "unconfigured";
   return Response.json(

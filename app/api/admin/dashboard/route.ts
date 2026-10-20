@@ -3,10 +3,13 @@ import { ensureCollections } from "@/lib/mongo-schema";
 import { expireAwaitingOrders } from "@/lib/order-maintenance";
 import { getFirebaseUser } from "@/lib/firebase-server";
 import { hasPermission } from "@/lib/user-roles";
+import { applyRateLimit } from "@/lib/rate-limiter";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const limited = applyRateLimit(request, "standard");
+  if (limited) return limited;
   const user = await getFirebaseUser(request);
   if (!user) return Response.json({ error: "Please sign in to view the admin dashboard." }, { status: 401 });
   try {

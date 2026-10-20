@@ -1,10 +1,13 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { getDb } from "@/lib/mongodb";
 import { finalizePaidOrder } from "@/lib/payment-finalize";
+import { applyRateLimit } from "@/lib/rate-limiter";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const limited = applyRateLimit(request, "write");
+  if (limited) return limited;
   const { mongoOrderId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = await request.json();
   if (![mongoOrderId, razorpay_order_id, razorpay_payment_id, razorpay_signature].every((value) => typeof value === "string" && value.length)) return Response.json({ error: "Missing payment verification details" }, { status: 400 });
   const secret = process.env.RAZORPAY_KEY_SECRET;

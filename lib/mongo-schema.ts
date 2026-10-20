@@ -1,6 +1,20 @@
 import type { Db } from "mongodb";
 import { seedLegacyAdminRoles } from "@/lib/user-roles";
 
+// Schema/index changes are administrative work, not request work. Bump this when a
+// validator, index, or one-time data migration below changes.
+const SCHEMA_VERSION = 1;
+const SCHEMA_MARKER_ID = "aaroda-collections";
+
+declare global {
+  // Kept on globalThis so warm serverless invocations share the initialization work.
+  var aarodaSchemaInitialization: Promise<void> | undefined;
+}
+
+function appMetadata(db: Db) {
+  return db.collection<{ _id: string; version?: number; initializedAt?: Date }>("_appMeta");
+}
+
 export const inventoryExcelColumns = [
   "sr",
   "sku",
@@ -144,7 +158,7 @@ const paymentValidator = {
   }
 };
 
-export async function ensureCollections(db: Db) {
+async function initializeCollections(db: Db) {
   try {
     const existing = new Set((await db.listCollections({}, { nameOnly: true }).toArray()).map((item) => item.name));
     if (!existing.has("inventory")) {
@@ -183,17 +197,47 @@ export async function ensureCollections(db: Db) {
     await db.collection("inventory").createIndex({ name: "text", description: "text", categoryType: "text", sku: "text" }, { name: "inventory_text_search" }).catch(() => undefined);
     await db.collection("orders").createIndex({ orderNumber: 1 }, { unique: true }).catch(() => undefined);
     await db.collection("orders").createIndex({ userId: 1, createdAt: -1 }).catch(() => undefined);
+    // Supports time-window scans and is the supporting index for Atlas range
+    // sharding on createdAt (sharding itself is enabled at the cluster level).
+    await db.collection("orders").createIndex({ createdAt: 1, _id: 1 }, { name: "orders_createdAt_range" }).catch(() => undefined);
     await db.collection("orders").createIndex({ razorpayOrderId: 1 }, { unique: true, sparse: true }).catch(() => undefined);
     await db.collection("orders").createIndex({ userId: 1, idempotencyKey: 1 }, { unique: true, sparse: true }).catch(() => undefined);
     await db.collection("payments").createIndex({ orderId: 1 }, { unique: true }).catch(() => undefined);
     await db.collection("payments").createIndex({ paymentReferenceId: 1 }, { unique: true, sparse: true }).catch(() => undefined);
     await db.collection("payments").createIndex({ userId: 1, createdAt: -1 }).catch(() => undefined);
+    await db.collection("payments").createIndex({ createdAt: 1, _id: 1 }, { name: "payments_createdAt_range" }).catch(() => undefined);
     await db.collection("addresses").createIndex({ userId: 1, isDefault: -1, updatedAt: -1 }).catch(() => undefined);
     await db.collection("users").createIndex({ userId: 1 }, { unique: true }).catch(() => undefined);
     await db.collection("userRoles").createIndex({ userId: 1 }, { unique: true, sparse: true }).catch(() => undefined);
     await db.collection("userRoles").dropIndex("email_1").catch(() => undefined);
     await db.collection("userRoles").createIndex({ email: 1 }, { unique: true, sparse: true }).catch(() => undefined);
+    await appMetadata(db).updateOne(
+      { _id: SCHEMA_MARKER_ID },
+      { $set: { version: SCHEMA_VERSION, initializedAt: new Date() } },
+      { upsert: true },
+    );
   } catch (err) {
     console.warn("Collection init warning:", err);
   }
+}
+
+/**
+ * Performs collection maintenance once per schema version, then memoizes it for
+ * the lifetime of a warm runtime. This keeps normal API requests to their actual
+ * query work instead of repeating collMod, migrations, and createIndex calls.
+ */
+export function ensureCollections(db: Db): Promise<void> {
+  if (!global.aarodaSchemaInitialization) {
+    global.aarodaSchemaInitialization = (async () => {
+      const marker = await appMetadata(db).findOne({ _id: SCHEMA_MARKER_ID });
+      if (marker?.version === SCHEMA_VERSION) return;
+      await initializeCollections(db);
+    })().catch((error) => {
+      // Preserve the existing best-effort behavior and allow a later request to retry.
+      console.warn("Collection initialization lookup warning:", error);
+      global.aarodaSchemaInitialization = undefined;
+    });
+  }
+
+  return global.aarodaSchemaInitialization;
 }

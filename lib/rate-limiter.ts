@@ -27,6 +27,17 @@ function getRateLimitMap(): Map<string, ClientRecord> {
   return global.nammaRateLimitMap;
 }
 
+function pruneRateLimitMap(store: Map<string, ClientRecord>, now: number) {
+  // Prevent an unbounded in-memory map in long-lived Node runtimes. Vercel
+  // instances are isolated, so this is a safety guard rather than a substitute
+  // for a distributed limiter (Redis can be added later if global enforcement is needed).
+  if (store.size <= 10_000) return;
+  for (const [key, record] of store) {
+    if (record.timestamps.every((timestamp) => timestamp <= now - 60_000)) store.delete(key);
+    if (store.size <= 8_000) break;
+  }
+}
+
 export function getClientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {
@@ -55,6 +66,7 @@ export function checkRateLimit(clientId: string, tier: RateLimitTier = "standard
   const now = Date.now();
   const windowStart = now - config.windowMs;
   const store = getRateLimitMap();
+  pruneRateLimitMap(store, now);
 
   const key = `${tier}:${clientId}`;
   let record = store.get(key);

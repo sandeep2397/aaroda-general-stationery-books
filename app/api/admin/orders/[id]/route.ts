@@ -3,10 +3,13 @@ import { getDb } from "@/lib/mongodb";
 import { getFirebaseUser } from "@/lib/firebase-server";
 import { ensureCollections } from "@/lib/mongo-schema";
 import { hasPermission } from "@/lib/user-roles";
+import { applyRateLimit } from "@/lib/rate-limiter";
 
 type OrderLine = { inventoryId?: ObjectId; productId?: ObjectId; quantity?: number; name?: string; sku?: string };
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  const limited = applyRateLimit(request, "write");
+  if (limited) return limited;
   const user = await getFirebaseUser(request);
   if (!user) return Response.json({ error: "Please sign in to manage orders." }, { status: 401 });
   const { id } = await context.params;

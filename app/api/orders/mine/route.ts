@@ -1,6 +1,7 @@
 import { getFirebaseUserId } from "@/lib/firebase-server";
-import { getDb } from "@/lib/mongodb";
+import { getConsistentReadDb } from "@/lib/mongodb";
 import { expireAwaitingOrders } from "@/lib/order-maintenance";
+import { applyRateLimit } from "@/lib/rate-limiter";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,8 @@ const sortOptions = {
 } as const;
 
 export async function GET(request: Request) {
+  const limited = applyRateLimit(request, "standard");
+  if (limited) return limited;
   const userId = await getFirebaseUserId(request);
   if (!userId) return Response.json({ error: "Please sign in to view your orders" }, { status: 401 });
   const { searchParams } = new URL(request.url);
@@ -30,7 +33,7 @@ export async function GET(request: Request) {
     { "lines.sku": { $regex: search, $options: "i" } },
   ];
   try {
-    const db = await getDb();
+    const db = await getConsistentReadDb();
     await expireAwaitingOrders(db);
     const [orders, total] = await Promise.all([db.collection("orders").find(filter).sort(sortOptions[sort || "newest"]).skip((page - 1) * limit).limit(limit).toArray(), db.collection("orders").countDocuments(filter)]);
     return Response.json({ orders: orders.map(({ _id, ...order }) => ({ id: _id.toString(), ...order })), total, page, limit, hasMore: page * limit < total }, { headers: { "Cache-Control": "no-store" } });
